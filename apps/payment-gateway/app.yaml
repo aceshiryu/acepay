@@ -1,5 +1,4 @@
 runtime: nodejs22
-service: api
 entrypoint: node main.js
 
 instance_class: F1

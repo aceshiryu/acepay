@@ -12,7 +12,7 @@ steps:
     env:
       - 'NODE_ENV=${_NODE_ENV}'
       - 'CORS_ORIGINS=${_ADMIN_URL}'
-      - 'LEMONSQUEEZY_TEST_MODE=false'
+      - 'LEMONSQUEEZY_TEST_MODE={_LEMONSQUEEZY_TEST_MODE}'
     secretEnv:
       [
         'JWT_SECRET',
