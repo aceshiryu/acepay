@@ -39,6 +39,8 @@ steps:
       - '-c'
       - |
         cp apps/payment-worker/app.yaml apps/payment-worker/dist/app.yaml
+        # Stops gcloud from inheriting the repo .gitignore (which excludes dist/).
+        touch apps/payment-worker/dist/.gcloudignore
 
   - id: npm-install
     name: node:$_NODE_VERSION

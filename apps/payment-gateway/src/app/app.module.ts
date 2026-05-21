@@ -24,9 +24,13 @@ import { WebhooksModule } from '../modules/webhooks/webhooks.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      // After webpack bundles, __dirname is apps/payment-gateway/dist/,
-      // so .env at apps/payment-gateway/.env is one directory up.
-      envFilePath: resolve(__dirname, '../.env'),
+      // Order matters: ConfigModule reads the first existing file.
+      // App Engine deploys dist contents into /workspace, so .env sits next
+      // to main.js. Locally (webpack output), .env is one dir above dist.
+      envFilePath: [
+        resolve(__dirname, '.env'),
+        resolve(__dirname, '../.env'),
+      ],
     }),
     DatabaseModule,
     QueueModule,

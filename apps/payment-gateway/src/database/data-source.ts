@@ -3,9 +3,14 @@ import { resolve } from 'path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import * as Entities from './entities';
 
-// Always load .env from the payment-gateway project root, regardless of CWD.
-// (Repo-level scripts like `npm run db:migrate` run from the workspace root.)
+// Try every plausible .env location — dotenv silently skips missing files
+// and a subsequent load won't overwrite already-set vars. Covers:
+//   * ts-node from source (db:migrate): __dirname=src/database, .env at ../../.env
+//   * webpack-built local dev: __dirname=dist, .env at ../.env (project root)
+//   * App Engine (flat /workspace): __dirname=/workspace, .env at .env (same dir)
 loadEnv({ path: resolve(__dirname, '../../.env') });
+loadEnv({ path: resolve(__dirname, '../.env') });
+loadEnv({ path: resolve(__dirname, '.env') });
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',

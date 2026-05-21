@@ -45,6 +45,9 @@ steps:
       - '-c'
       - |
         cp apps/payment-gateway/app.yaml apps/payment-gateway/dist/app.yaml
+        # Stops gcloud from inheriting the repo .gitignore (which excludes dist/),
+        # otherwise our deploy bundle gets filtered to nothing.
+        touch apps/payment-gateway/dist/.gcloudignore
 
   - id: npm-install
     name: node:$_NODE_VERSION

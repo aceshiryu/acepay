@@ -10,7 +10,13 @@
  */
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'path';
+// Local dev: borrow the gateway's .env (single source of truth across services).
+// App Engine deploys the worker's dist/ to /workspace with its own generated .env,
+// so try the bundled-flat location too. dotenv silently skips missing files
+// and won't overwrite already-set vars.
 loadEnv({ path: resolve(__dirname, '../../payment-gateway/.env') });
+loadEnv({ path: resolve(__dirname, '.env') });
+loadEnv({ path: resolve(__dirname, '../.env') });
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

@@ -3,7 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'path';
-// Load .env from the payment-gateway project root regardless of CWD.
+// Load .env from multiple candidate paths — dotenv silently skips missing ones,
+// and a load won't overwrite already-set vars. Covers:
+//   * App Engine: dist contents flattened into /workspace, .env at /workspace/.env  →  __dirname='.env'
+//   * Local dev / webpack output: __dirname=dist, .env at the project root one up
+loadEnv({ path: resolve(__dirname, '.env') });
 loadEnv({ path: resolve(__dirname, '../.env') });
 import { AppModule } from './app/app.module';
 
