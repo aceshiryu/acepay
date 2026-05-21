@@ -1,5 +1,5 @@
 runtime: nodejs22
-service: api
+service: gateway
 entrypoint: node main.js
 
 instance_class: F1
