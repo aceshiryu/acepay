@@ -22,40 +22,14 @@ steps:
       - '-e'
       - '-c'
       - |
-        STANDALONE=apps/payment-admin/.next/standalone
-        cp apps/payment-admin/app-production.yaml $$STANDALONE/app-production.yaml
-        mkdir -p $$STANDALONE/static_directories_copy/_next_static
-        cp -r apps/payment-admin/.next/static/* $$STANDALONE/static_directories_copy/_next_static/
-        mkdir -p $$STANDALONE/apps/payment-admin/public
-        cp -r apps/payment-admin/public/* $$STANDALONE/apps/payment-admin/public/
-
-        # App Engine runs `npm start` from /workspace. We give it a package.json
-        # with explicit runtime deps so `npm install` pulls in next/react —
-        # Nx's Next.js standalone output doesn't bundle node_modules reliably
-        # in monorepo setups, so we can't rely on what the standalone copied.
-        cat > $$STANDALONE/package.json <<JSON
-        {
-          "name": "acepay-admin",
-          "version": "1.0.0",
-          "private": true,
-          "scripts": { "start": "node apps/payment-admin/server.js" },
-          "engines": { "node": "22" },
-          "dependencies": {
-            "next": "~16.1.6",
-            "react": "^19.0.0",
-            "react-dom": "^19.0.0"
-          }
-        }
-        JSON
-
-        # Stops gcloud from inheriting the repo .gitignore (which excludes .next/),
-        # otherwise our deploy bundle gets filtered to nothing — App Engine sees
-        # ENOENT for /workspace/package.json on `npm start`.
-        touch $$STANDALONE/.gcloudignore
+        cp apps/payment-admin/app-production.yaml apps/payment-admin/dist/app-production.yaml
+        mkdir -p apps/payment-admin/dist/static_directories_copy/_next_static
+        cp -r apps/payment-admin/.next/static/* apps/payment-admin/dist/static_directories_copy/_next_static
+        cp apps/payment-admin/robots.txt apps/payment-admin/dist/robots.txt
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['app', 'deploy', 'app-production.yaml', '--no-cache']
-    dir: 'apps/payment-admin/.next/standalone'
+    dir: 'apps/payment-admin/dist'
 
   - name: gcr.io/cloud-builders/gcloud
     entrypoint: bash

@@ -38,9 +38,16 @@ steps:
       - '-e'
       - '-c'
       - |
-        cp apps/payment-worker/app.yaml apps/payment-worker/dist/app.yaml
-        # Stops gcloud from inheriting the repo .gitignore (which excludes dist/).
-        touch apps/payment-worker/dist/.gcloudignore
+        cp apps/payment-worker/app-production.yaml apps/payment-worker/dist/app-production.yaml
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: COPY-ROBOTS-TXT
+    entrypoint: bash
+    args:
+      - '-e'
+      - '-c'
+      - |
+        cp apps/payment-worker/robots.txt apps/payment-worker/dist/robots.txt
 
   - id: npm-install
     name: node:$_NODE_VERSION
@@ -49,7 +56,7 @@ steps:
     dir: 'apps/payment-worker/dist'
 
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['app', 'deploy', 'app.yaml', '--no-cache']
+    args: ['app', 'deploy', 'app-production.yaml', '--no-cache']
     dir: 'apps/payment-worker/dist'
 
   - name: gcr.io/cloud-builders/gcloud

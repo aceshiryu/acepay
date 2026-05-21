@@ -45,8 +45,15 @@ steps:
       - '-c'
       - |
         cp apps/payment-gateway/app.yaml apps/payment-gateway/dist/app.yaml
-        # Stops gcloud from inheriting the repo .gitignore (which excludes dist/).
-        touch apps/payment-gateway/dist/.gcloudignore
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: COPY-ROBOTS-TXT
+    entrypoint: bash
+    args:
+      - '-e'
+      - '-c'
+      - |
+        cp apps/payment-gateway/robots.txt apps/payment-gateway/dist/robots.txt
 
   - id: npm-install
     name: node:$_NODE_VERSION
@@ -55,7 +62,15 @@ steps:
     dir: 'apps/payment-gateway/dist'
 
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['app', 'deploy', 'app.yaml', '--no-cache', '--no-promote', '--version=dev-$SHORT_SHA']
+    args:
+      [
+        'app',
+        'deploy',
+        'app.yaml',
+        '--no-cache',
+        '--no-promote',
+        '--version=dev-$SHORT_SHA',
+      ]
     dir: 'apps/payment-gateway/dist'
 
   - name: gcr.io/cloud-builders/gcloud
@@ -96,7 +111,7 @@ options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
   _NODE_VERSION: '22'
-  _NODE_ENV: production
+  _NODE_ENV: development
   _ADMIN_URL: https://admin-dot-${PROJECT_ID}.as.r.appspot.com
   _PUBLIC_BASE_URL: https://${PROJECT_ID}.as.r.appspot.com
   _ADMIN_JWT_TTL_HOURS: '12'

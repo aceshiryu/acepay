@@ -44,10 +44,16 @@ steps:
       - '-e'
       - '-c'
       - |
-        cp apps/payment-gateway/app.yaml apps/payment-gateway/dist/app.yaml
-        # Stops gcloud from inheriting the repo .gitignore (which excludes dist/),
-        # otherwise our deploy bundle gets filtered to nothing.
-        touch apps/payment-gateway/dist/.gcloudignore
+        cp apps/payment-gateway/app-production.yaml apps/payment-gateway/dist/app-production.yaml
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: COPY-ROBOTS-TXT
+    entrypoint: bash
+    args:
+      - '-e'
+      - '-c'
+      - |
+        cp apps/payment-gateway/robots.txt apps/payment-gateway/dist/robots.txt
 
   - id: npm-install
     name: node:$_NODE_VERSION
@@ -56,7 +62,7 @@ steps:
     dir: 'apps/payment-gateway/dist'
 
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['app', 'deploy', 'app.yaml', '--no-cache']
+    args: ['app', 'deploy', 'app-production.yaml', '--no-cache']
     dir: 'apps/payment-gateway/dist'
 
   - name: gcr.io/cloud-builders/gcloud
