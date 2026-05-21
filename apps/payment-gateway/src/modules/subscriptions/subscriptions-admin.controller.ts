@@ -40,6 +40,14 @@ export class SubscriptionsAdminController {
     return this.subs.cancel(id);
   }
 
+  @Post(':id/reactivate')
+  @ApiOperation({
+    summary: 'Operator-initiated reactivate (undo cancel while paid period is still active)',
+  })
+  reactivate(@Param('id', ParseUUIDPipe) id: string) {
+    return this.subs.reactivate(id);
+  }
+
   @Post(':id/pause')
   @ApiOperation({ summary: 'Operator-initiated pause (calls provider)' })
   pause(@Param('id', ParseUUIDPipe) id: string) {

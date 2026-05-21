@@ -57,6 +57,18 @@ export class SubscriptionsAppController {
     return this.subscriptions.cancel(app, id, dto);
   }
 
+  @Post(':id/reactivate')
+  @ApiOperation({
+    summary: 'Reactivate a canceled subscription while still in its paid period',
+    description:
+      'Undoes a not-yet-effective cancel. Only valid when status=canceled and ' +
+      'currentPeriodEnd is in the future. No new payment is collected — the saved ' +
+      'PaymentMethod carries forward and recurring billing resumes on the original schedule.',
+  })
+  reactivate(@CurrentApp() app: App, @Param('id', ParseUUIDPipe) id: string) {
+    return this.subscriptions.reactivate(app, id);
+  }
+
   @Post(':id/pause')
   @ApiOperation({ summary: 'Pause a subscription (no billing until resumed)' })
   pause(@CurrentApp() app: App, @Param('id', ParseUUIDPipe) id: string) {

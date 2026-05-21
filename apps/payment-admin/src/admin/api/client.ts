@@ -232,9 +232,10 @@ export const subscriptions = {
   list: (q: SubListQuery = {}) => request<Paged<Subscription>>('/admin/subscriptions', { query: q }),
   stats: (q: SubListQuery = {}) => request<SubscriptionStats>('/admin/subscriptions/stats', { query: q }),
   one: (id: string) => request<Subscription>(`/admin/subscriptions/${id}`),
-  cancel: (id: string) => request<Subscription>(`/admin/subscriptions/${id}/cancel`, { method: 'POST' }),
-  pause:  (id: string) => request<Subscription>(`/admin/subscriptions/${id}/pause`,  { method: 'POST' }),
-  resume: (id: string) => request<Subscription>(`/admin/subscriptions/${id}/resume`, { method: 'POST' }),
+  cancel:     (id: string) => request<Subscription>(`/admin/subscriptions/${id}/cancel`,     { method: 'POST' }),
+  reactivate: (id: string) => request<Subscription>(`/admin/subscriptions/${id}/reactivate`, { method: 'POST' }),
+  pause:      (id: string) => request<Subscription>(`/admin/subscriptions/${id}/pause`,      { method: 'POST' }),
+  resume:     (id: string) => request<Subscription>(`/admin/subscriptions/${id}/resume`,     { method: 'POST' }),
 };
 
 // ── Lemon Squeezy ────────────────────────────────────────────────────────

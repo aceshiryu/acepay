@@ -193,6 +193,15 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
       breadcrumbs={[{ label: 'Subscriptions', onClick: onBack }, { label: sub.id.slice(0, 12) }]}
       actions={
         <>
+          {sub.status === 'canceled' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > Date.now() && (
+            <Button variant="primary" size="md"
+              onClick={async () => {
+                try { await api.subscriptions.reactivate(sub.id); subQ.refetch(); }
+                catch (err) { alert(err instanceof Error ? err.message : 'Reactivate failed'); }
+              }}>
+              Reactivate
+            </Button>
+          )}
           {sub.status === 'paused' ? (
             <Button variant="primary" size="md"
               onClick={async () => { await api.subscriptions.resume(sub.id); subQ.refetch(); }}>
@@ -204,7 +213,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
               Pause
             </Button>
           ) : null}
-          {sub.status !== 'canceled' && (
+          {sub.status !== 'canceled' && sub.status !== 'expired' && (
             <Button variant="danger" size="md" onClick={() => setCancelOpen(true)}>Cancel Subscription</Button>
           )}
         </>

@@ -208,6 +208,22 @@ export class XenditAdapter implements PaymentProvider {
     };
   }
 
+  /** Xendit has no provider-side subscription resource — AcePay owns the
+   *  schedule and the Bull job was never removed at cancel time, so reactivate
+   *  is a no-op on the provider side. SubscriptionsAppService.reactivate
+   *  flips status back to Active and the queued cycle fires normally. */
+  async uncancelSubscription(providerSubscriptionId: string): Promise<FetchedSubscription> {
+    return {
+      providerSubscriptionId,
+      status: 'active' as unknown as FetchedSubscription['status'],
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAt: null,
+      canceledAt: null,
+      raw: { reactivatedBy: 'acepay' },
+    };
+  }
+
   async pauseSubscription(_id: string): Promise<FetchedSubscription> {
     throw new Error(PAUSE_RESUME_NOT_SUPPORTED);
   }

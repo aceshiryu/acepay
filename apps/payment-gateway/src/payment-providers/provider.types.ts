@@ -96,6 +96,8 @@ export interface PaymentProvider {
   createSubscription(params: CreateSubscriptionParams): Promise<CreateSubscriptionResult>;
   getSubscription(providerSubscriptionId: string): Promise<FetchedSubscription>;
   cancelSubscription(providerSubscriptionId: string): Promise<FetchedSubscription>;
+  /** Undo a not-yet-effective cancel (sub still in paid period). */
+  uncancelSubscription(providerSubscriptionId: string): Promise<FetchedSubscription>;
   pauseSubscription(providerSubscriptionId: string): Promise<FetchedSubscription>;
   resumeSubscription(providerSubscriptionId: string): Promise<FetchedSubscription>;
 

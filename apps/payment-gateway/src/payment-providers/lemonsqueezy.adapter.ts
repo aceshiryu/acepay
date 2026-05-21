@@ -236,6 +236,17 @@ export class LemonsqueezyAdapter implements PaymentProvider {
     return mapSubscription(data.data);
   }
 
+  async uncancelSubscription(providerSubscriptionId: string): Promise<FetchedSubscription> {
+    this.init();
+    const { data, error } = await updateSubscription(providerSubscriptionId, {
+      cancelled: false,
+    });
+    if (error || !data) {
+      throw new Error(`Lemon Squeezy uncancelSubscription failed: ${error?.message ?? 'unknown'}`);
+    }
+    return mapSubscription(data.data);
+  }
+
   async pauseSubscription(providerSubscriptionId: string): Promise<FetchedSubscription> {
     this.init();
     const { data, error } = await updateSubscription(providerSubscriptionId, {

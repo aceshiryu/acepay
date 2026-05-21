@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
@@ -70,6 +70,35 @@ export class SubscriptionsAdminService {
     sub.status = result.status;
     sub.cancelAt = result.cancelAt;
     sub.canceledAt = result.canceledAt ?? new Date();
+    return this.subscriptions.save(sub);
+  }
+
+  /** Operator-initiated reactivate. Mirrors SubscriptionsAppService.reactivate.
+   *  Only valid when status=Canceled and currentPeriodEnd is in the future. */
+  async reactivate(id: string): Promise<Subscription> {
+    const sub = await this.findOneRaw(id);
+    if (sub.status === SubscriptionStatus.Active) return sub;
+    if (sub.status !== SubscriptionStatus.Canceled) {
+      throw new BadRequestException({
+        error: 'subscription_not_reactivatable',
+        message: `Subscription is ${sub.status}; only canceled subs in their paid period can be reactivated`,
+      });
+    }
+    if (!sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        error: 'subscription_period_already_ended',
+        message: 'Paid period has already ended — create a new subscription instead',
+      });
+    }
+    const provider = this.providers.resolve(sub.provider);
+    await provider.uncancelSubscription(sub.providerSubscriptionId);
+    sub.status = SubscriptionStatus.Active;
+    sub.cancelAt = null;
+    sub.canceledAt = null;
+    if (sub.metadata && 'cancelReason' in sub.metadata) {
+      const { cancelReason: _, ...rest } = sub.metadata as Record<string, unknown>;
+      sub.metadata = rest;
+    }
     return this.subscriptions.save(sub);
   }
 

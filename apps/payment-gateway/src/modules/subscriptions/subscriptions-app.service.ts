@@ -144,6 +144,36 @@ export class SubscriptionsAppService {
     return this.subscriptions.save(sub);
   }
 
+  /** Undo a not-yet-effective cancel. Only valid while the sub is Canceled and
+   *  the paid period hasn't ended. After reactivation the queued cycle (which
+   *  we kept on cancel) fires normally and charges as if nothing happened. */
+  async reactivate(app: App, id: string): Promise<Subscription> {
+    const sub = await this.findOne(app, id);
+    if (sub.status === SubscriptionStatus.Active) return sub;
+    if (sub.status !== SubscriptionStatus.Canceled) {
+      throw new BadRequestException({
+        error: 'subscription_not_reactivatable',
+        message: `Subscription is ${sub.status}; only canceled subs in their paid period can be reactivated`,
+      });
+    }
+    if (!sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        error: 'subscription_period_already_ended',
+        message: 'Paid period has already ended — create a new subscription instead',
+      });
+    }
+    const provider = this.providers.resolve(sub.provider);
+    await provider.uncancelSubscription(sub.providerSubscriptionId);
+    sub.status = SubscriptionStatus.Active;
+    sub.cancelAt = null;
+    sub.canceledAt = null;
+    if (sub.metadata && 'cancelReason' in sub.metadata) {
+      const { cancelReason: _, ...rest } = sub.metadata as Record<string, unknown>;
+      sub.metadata = rest;
+    }
+    return this.subscriptions.save(sub);
+  }
+
   async pause(app: App, id: string): Promise<Subscription> {
     const sub = await this.findOne(app, id);
     if (sub.status === SubscriptionStatus.Paused) return sub;
