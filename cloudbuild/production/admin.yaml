@@ -29,15 +29,22 @@ steps:
         mkdir -p $$STANDALONE/apps/payment-admin/public
         cp -r apps/payment-admin/public/* $$STANDALONE/apps/payment-admin/public/
 
-        # App Engine runs `npm start` from /workspace, so put a package.json
-        # at the deploy root pointing at the Next.js standalone server entry.
+        # App Engine runs `npm start` from /workspace. We give it a package.json
+        # with explicit runtime deps so `npm install` pulls in next/react —
+        # Nx's Next.js standalone output doesn't bundle node_modules reliably
+        # in monorepo setups, so we can't rely on what the standalone copied.
         cat > $$STANDALONE/package.json <<JSON
         {
           "name": "acepay-admin",
           "version": "1.0.0",
           "private": true,
           "scripts": { "start": "node apps/payment-admin/server.js" },
-          "engines": { "node": "22" }
+          "engines": { "node": "22" },
+          "dependencies": {
+            "next": "~16.1.6",
+            "react": "^19.0.0",
+            "react-dom": "^19.0.0"
+          }
         }
         JSON
 
