@@ -1,0 +1,79 @@
+:root {
+  --bg:           #F6F4EE;
+  --surface:      #FFFFFF;
+  --surface-2:    #FBF9F4;
+  --ink:          #16140F;
+  --ink-2:        #3A372F;
+  --muted:        #7A7568;
+  --muted-2:      #A8A294;
+  --border:       #E5E1D6;
+  --border-2:     #ECE8DC;
+  --hairline:     #EFEBDE;
+
+  --accent:       #1E2A4A;
+  --accent-ink:   #FFFFFF;
+  --accent-soft:  #E4E3EB;
+
+  --ok:           #2F7D52;
+  --ok-soft:      #DCEEDF;
+  --warn:         #B6781F;
+  --warn-soft:    #F3E5C7;
+  --bad:          #B32D2E;
+  --bad-soft:     #F4D9D6;
+  --info:         #3D5BA9;
+  --info-soft:    #DDE2F1;
+  --neutral-soft: #E9E5D9;
+  --refund:       #B36A21;
+  --refund-soft:  #F3DDC1;
+
+  --lemon-bg:    #FFF4C2;
+  --lemon-ink:   #8A6D00;
+  --xendit-bg:   #EEE5F8;
+  --xendit-ink:  #5D34A8;
+
+  --radius:       8px;
+  --radius-sm:    6px;
+  --shadow-1:     0 1px 0 rgba(22,20,15,0.04), 0 1px 2px rgba(22,20,15,0.03);
+  --shadow-2:     0 8px 24px -8px rgba(22,20,15,0.12), 0 2px 4px rgba(22,20,15,0.04);
+
+  --font-sans:    var(--font-inter), -apple-system, system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains), ui-monospace, monospace;
+  --font-serif:   var(--font-instrument), 'Iowan Old Style', serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+::selection { background: var(--accent); color: #fff; }
+
+button { font-family: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: inherit; }
+h1, h2, h3, h4, h5, h6, p, pre { margin: 0; }
+
+.mono { font-family: var(--font-mono); font-feature-settings: 'zero', 'ss02'; }
+.serif { font-family: var(--font-serif); font-weight: 400; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D8D3C2; border-radius: 10px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #B9B39E; }
+
+@keyframes pulse-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pulse-dot { animation: pulse-fade 2.2s ease-in-out infinite; }
+
+@keyframes flash-in {
+  0% { background: var(--info-soft); }
+  100% { background: transparent; }
+}

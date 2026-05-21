@@ -1,0 +1,79 @@
+steps:
+  - name: node:$_NODE_VERSION
+    entrypoint: npm
+    args: ['install']
+
+  - name: node:$_NODE_VERSION
+    entrypoint: npm
+    args: ['run', 'build:worker']
+
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['run', 'create-env', 'apps/payment-worker/dist/.env']
+    env:
+      - 'NODE_ENV=${_NODE_ENV}'
+      - 'LEMONSQUEEZY_TEST_MODE=false'
+    secretEnv:
+      [
+        'WEBHOOK_SECRET_ENCRYPTION_KEY',
+        'DATABASE_URL',
+        'REDIS_URL',
+        'LEMONSQUEEZY_API_KEY',
+        'LEMONSQUEEZY_STORE_ID',
+        'LEMONSQUEEZY_WEBHOOK_SECRET',
+        'LEMONSQUEEZY_VARIANT_ID',
+        'XENDIT_SECRET_KEY',
+        'XENDIT_WEBHOOK_TOKEN',
+      ]
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: COPY-APP-YAML
+    entrypoint: bash
+    args:
+      - '-e'
+      - '-c'
+      - |
+        cp apps/payment-worker/app.yaml apps/payment-worker/dist/app.yaml
+
+  - id: npm-install
+    name: node:$_NODE_VERSION
+    entrypoint: npm
+    args: ['install']
+    dir: 'apps/payment-worker/dist'
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['app', 'deploy', 'app.yaml', '--no-cache']
+    dir: 'apps/payment-worker/dist'
+
+  - name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud app versions list --format="value(version.id)" --sort-by="~version.createTime" --service="worker" | tail -n +40 | xargs -r gcloud app versions delete --quiet
+
+timeout: 1800s
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _NODE_VERSION: '22'
+  _NODE_ENV: production
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/WEBHOOK_SECRET_ENCRYPTION_KEY/versions/latest
+      env: 'WEBHOOK_SECRET_ENCRYPTION_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/DATABASE_URL/versions/latest
+      env: 'DATABASE_URL'
+    - versionName: projects/$PROJECT_ID/secrets/REDIS_URL/versions/latest
+      env: 'REDIS_URL'
+    - versionName: projects/$PROJECT_ID/secrets/LEMONSQUEEZY_API_KEY/versions/latest
+      env: 'LEMONSQUEEZY_API_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/LEMONSQUEEZY_STORE_ID/versions/latest
+      env: 'LEMONSQUEEZY_STORE_ID'
+    - versionName: projects/$PROJECT_ID/secrets/LEMONSQUEEZY_WEBHOOK_SECRET/versions/latest
+      env: 'LEMONSQUEEZY_WEBHOOK_SECRET'
+    - versionName: projects/$PROJECT_ID/secrets/LEMONSQUEEZY_VARIANT_ID/versions/latest
+      env: 'LEMONSQUEEZY_VARIANT_ID'
+    - versionName: projects/$PROJECT_ID/secrets/XENDIT_SECRET_KEY/versions/latest
+      env: 'XENDIT_SECRET_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/XENDIT_WEBHOOK_TOKEN/versions/latest
+      env: 'XENDIT_WEBHOOK_TOKEN'

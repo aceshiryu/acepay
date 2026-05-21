@@ -1,0 +1,27 @@
+{
+  "name": "@ace-pay/payment-gateway-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "payment-gateway-e2e",
+    "implicitDependencies": [
+      "payment-gateway"
+    ],
+    "targets": {
+      "e2e": {
+        "executor": "@nx/jest:jest",
+        "outputs": [
+          "{projectRoot}/test-output/jest/coverage"
+        ],
+        "options": {
+          "jestConfig": "apps/payment-gateway-e2e/jest.config.cts",
+          "passWithNoTests": true
+        },
+        "dependsOn": [
+          "payment-gateway:build",
+          "payment-gateway:serve"
+        ]
+      }
+    }
+  }
+}

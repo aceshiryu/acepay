@@ -1,0 +1,48 @@
+steps:
+  - name: node:$_NODE_VERSION
+    entrypoint: npm
+    args: ['install']
+
+  - name: node:$_NODE_VERSION
+    entrypoint: npm
+    args: ['run', 'build:admin']
+    env:
+      - 'NEXT_PUBLIC_API_URL=${_NEXT_PUBLIC_API_URL}'
+
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['run', 'create-env', 'apps/payment-admin/.next/standalone/.env']
+    env:
+      - 'API_BASE_URL=${_API_BASE_URL}'
+      - 'NEXT_PUBLIC_API_URL=${_NEXT_PUBLIC_API_URL}'
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: COPY-STUFF
+    entrypoint: bash
+    args:
+      - '-e'
+      - '-c'
+      - |
+        cp apps/payment-admin/app-production.yaml apps/payment-admin/.next/standalone/app-production.yaml
+        mkdir -p apps/payment-admin/.next/standalone/static_directories_copy/_next_static
+        cp -r apps/payment-admin/.next/static/* apps/payment-admin/.next/standalone/static_directories_copy/_next_static/
+        mkdir -p apps/payment-admin/.next/standalone/apps/payment-admin/public
+        cp -r apps/payment-admin/public/* apps/payment-admin/.next/standalone/apps/payment-admin/public/
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['app', 'deploy', 'app-production.yaml', '--no-cache']
+    dir: 'apps/payment-admin/.next/standalone'
+
+  - name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud app versions list --format="value(version.id)" --sort-by="~version.createTime" --service="admin" | tail -n +40 | xargs -r gcloud app versions delete --quiet
+
+timeout: 1800s
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _NODE_VERSION: '22'
+  _NEXT_PUBLIC_API_URL: 'https://gateway-dot-${PROJECT_ID}.as.r.appspot.com'
+  _API_BASE_URL: 'https://gateway-dot-${PROJECT_ID}.as.r.appspot.com'

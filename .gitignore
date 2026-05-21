@@ -42,3 +42,15 @@ Thumbs.db
 .nx/workspace-data
 .claude/worktrees
 .claude/settings.local.json
+
+test-output
+
+# Next.js
+.next
+out
+
+# Environment files (keep .env.example tracked, anywhere in the repo)
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example

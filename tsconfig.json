@@ -2,5 +2,48 @@
   "extends": "./tsconfig.base.json",
   "compileOnSave": false,
   "files": [],
-  "references": []
+  "references": [
+    {
+      "path": "./apps/payment-gateway-e2e"
+    },
+    {
+      "path": "./apps/payment-gateway"
+    },
+    {
+      "path": "./apps/payment-worker-e2e"
+    },
+    {
+      "path": "./apps/payment-worker"
+    },
+    {
+      "path": "./apps/payment-admin"
+    },
+    {
+      "path": "./libs/database"
+    },
+    {
+      "path": "./libs/payment-core"
+    },
+    {
+      "path": "./libs/stripe-adapter"
+    },
+    {
+      "path": "./libs/paymongo-adapter"
+    },
+    {
+      "path": "./libs/customers"
+    },
+    {
+      "path": "./libs/subscriptions"
+    },
+    {
+      "path": "./libs/webhooks"
+    },
+    {
+      "path": "./libs/transaction-logger"
+    },
+    {
+      "path": "./libs/auth"
+    }
+  ]
 }

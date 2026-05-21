@@ -1,0 +1,31 @@
+runtime: nodejs22
+service: api
+entrypoint: node main.js
+
+instance_class: F1
+
+automatic_scaling:
+  min_idle_instances: 0
+  max_idle_instances: 1
+  min_instances: 0
+
+inbound_services:
+  - warmup
+
+env_variables:
+  NODE_ENV: 'production'
+
+handlers:
+  - url: /_ah/warmup
+    script: auto
+
+  - url: /robots.txt
+    static_files: robots.txt
+    upload: robots.txt
+
+  - url: /.*
+    secure: always
+    script: auto
+# TODO: Use VPC Connector
+# vpc_access_connector:
+# name: projects/nifty-might-402412/locations/asia-southeast1/connectors/appengine-connector

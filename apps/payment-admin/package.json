@@ -1,0 +1,13 @@
+{
+  "name": "@ace-pay/payment-admin",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "payment-admin"
+  },
+  "dependencies": {
+    "next": "~16.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
