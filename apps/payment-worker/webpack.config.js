@@ -1,4 +1,5 @@
 const { composePlugins, withNx } = require('@nx/webpack');
+const { join } = require('path');
 
 // Nx plugins for webpack.
 // generatePackageJson: true → writes dist/package.json listing all externalized
@@ -16,5 +17,12 @@ module.exports = composePlugins(
     generatePackageJson: true,
     sourceMap: true,
   }),
-  (config) => config,
+  (config) => {
+    // Resolve all relative paths (tsConfig, main, output) from THIS file's
+    // directory. Without this, webpack uses process.cwd() which on Cloud
+    // Build is /workspace, breaking ForkTsCheckerWebpackPlugin's tsconfig lookup.
+    config.context = __dirname;
+    config.output = { ...config.output, path: join(__dirname, 'dist') };
+    return config;
+  },
 );
