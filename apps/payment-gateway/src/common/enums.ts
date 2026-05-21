@@ -31,6 +31,7 @@ export enum TransactionStatus {
   Succeeded = 'succeeded',
   Failed = 'failed',
   Refunded = 'refunded',
+  Canceled = 'canceled',
 }
 
 export enum SubscriptionStatus {

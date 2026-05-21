@@ -244,8 +244,8 @@ export class WebhooksService {
   }
 
   /** Xendit-specific: invoice.paid for a subscription's first cycle carries
-   *  the saved payment_method_id. Persist it on the Customer and schedule
-   *  cycle 2 at plan.interval from now. */
+   *  the saved payment_method_id. Persist it on the Customer, backfill a
+   *  Transaction row for cycle 1, and schedule cycle 2 at plan.interval. */
   private async handleXenditFirstPayment(sub: Subscription, event: NormalizedEvent): Promise<void> {
     if (!sub.customerId) return;
     const raw = event.raw as Record<string, unknown>;
@@ -259,6 +259,27 @@ export class WebhooksService {
       customer.xenditPaymentMethodId = String(pmId);
       customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
       await this.customers.save(customer);
+    }
+
+    // Record cycle 1 as a subscription_payment Transaction so billing history
+    // starts from day one instead of from cycle 2. Amount comes from the plan
+    // (the Xendit invoice was created with this amount via metadata).
+    if (sub.plan) {
+      const cycle1Tx = this.transactions.create({
+        appId: sub.appId,
+        customerId: sub.customerId,
+        subscriptionId: sub.id,
+        provider: Provider.Xendit,
+        providerTxId: String(event.providerTxId ?? raw.id ?? ''),
+        type: TransactionType.SubscriptionPayment,
+        status: TransactionStatus.Succeeded,
+        amount: sub.plan.amount,
+        currency: sub.plan.currency,
+        description: `${sub.plan.name} — cycle 1`,
+        providerCompletedAt: event.occurredAt ?? new Date(),
+        webhookReceivedAt: new Date(),
+      });
+      await this.transactions.save(cycle1Tx);
     }
 
     // Schedule cycle 2 at plan.interval from now.

@@ -5,8 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
-import { BillingMode, Provider, SubscriptionStatus } from '../../common/enums';
-import { SubscriptionBillingQueueService } from '../../common/queue/subscription-billing-queue.service';
+import { BillingMode, SubscriptionStatus } from '../../common/enums';
 import {
   App, Customer, Subscription,
 } from '../../database/entities';
@@ -27,7 +26,6 @@ export class SubscriptionsAppService {
     @InjectRepository(Customer) private readonly customers: Repository<Customer>,
     private readonly plans: PlansService,
     private readonly providers: ProviderRegistry,
-    private readonly billingQueue: SubscriptionBillingQueueService,
   ) {}
 
   async create(app: App, dto: CreateSubscriptionDto): Promise<CreateSubscriptionResponse> {
@@ -132,11 +130,11 @@ export class SubscriptionsAppService {
     if (sub.status === SubscriptionStatus.Canceled) return sub;
     const provider = this.providers.resolve(sub.provider);
     const result = await provider.cancelSubscription(sub.providerSubscriptionId);
-    // For Xendit, AcePay owns the billing schedule — drop any queued cycles so
-    // the worker doesn't charge again. For LS, the provider handles end-of-period.
-    if (sub.provider === Provider.Xendit) {
-      await this.billingQueue.cancel(sub.id);
-    }
+    // We deliberately do NOT drop the queued cycle for Xendit. The customer
+    // keeps access through currentPeriodEnd. When that scheduled cycle fires,
+    // SubscriptionBillingProcessor sees status=Canceled, records a Transaction
+    // with status='canceled' (no charge), marks the sub Expired, and stops
+    // scheduling further cycles. For LS, the provider handles end-of-period.
     sub.status = result.status;
     sub.cancelAt = result.cancelAt;
     sub.canceledAt = result.canceledAt ?? new Date();

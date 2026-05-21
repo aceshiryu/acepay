@@ -51,8 +51,34 @@ export class SubscriptionBillingProcessor {
       this.logger.warn(`Subscription ${subscriptionId} no longer exists — dropping billing job`);
       return;
     }
-    if (sub.status === SubscriptionStatus.Canceled || sub.status === SubscriptionStatus.Expired) {
-      this.logger.log(`Sub ${subscriptionId} is ${sub.status} — skipping cycle ${cycleNumber}`);
+    if (sub.status === SubscriptionStatus.Expired) {
+      this.logger.log(`Sub ${subscriptionId} already expired — dropping cycle ${cycleNumber}`);
+      return;
+    }
+    if (sub.status === SubscriptionStatus.Canceled) {
+      // Customer canceled mid-period and access carried through to this point.
+      // Record an audit Transaction (no charge), transition the sub to Expired,
+      // notify the app, and stop scheduling future cycles.
+      this.logger.log(`Sub ${subscriptionId} canceled — recording cancel-cycle ${cycleNumber} and expiring`);
+      const cancelTx = this.transactions.create({
+        appId: sub.appId,
+        customerId: sub.customerId,
+        subscriptionId: sub.id,
+        provider: sub.provider,
+        type: TransactionType.SubscriptionPayment,
+        status: TransactionStatus.Canceled,
+        amount: sub.plan?.amount ?? 0,
+        currency: sub.plan?.currency ?? 'PHP',
+        description: `${sub.plan?.name ?? 'Plan'} — cycle ${cycleNumber} skipped (subscription canceled)`,
+        providerCompletedAt: null,
+        webhookReceivedAt: new Date(),
+      });
+      const savedCancelTx = await this.transactions.save(cancelTx);
+
+      sub.status = SubscriptionStatus.Expired;
+      await this.subs.save(sub);
+
+      await this.emitWebhook(sub, savedCancelTx, 'subscription.expired');
       return;
     }
     if (sub.provider !== Provider.Xendit) {
