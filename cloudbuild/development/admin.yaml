@@ -23,15 +23,15 @@ steps:
       - '-c'
       - |
         STANDALONE=apps/payment-admin/.next/standalone
-        cp apps/payment-admin/app-production.yaml $STANDALONE/app-production.yaml
-        mkdir -p $STANDALONE/static_directories_copy/_next_static
-        cp -r apps/payment-admin/.next/static/* $STANDALONE/static_directories_copy/_next_static/
-        mkdir -p $STANDALONE/apps/payment-admin/public
-        cp -r apps/payment-admin/public/* $STANDALONE/apps/payment-admin/public/
+        cp apps/payment-admin/app-production.yaml $$STANDALONE/app-production.yaml
+        mkdir -p $$STANDALONE/static_directories_copy/_next_static
+        cp -r apps/payment-admin/.next/static/* $$STANDALONE/static_directories_copy/_next_static/
+        mkdir -p $$STANDALONE/apps/payment-admin/public
+        cp -r apps/payment-admin/public/* $$STANDALONE/apps/payment-admin/public/
 
         # App Engine runs `npm start` from /workspace, so put a package.json
         # at the deploy root pointing at the Next.js standalone server entry.
-        cat > $STANDALONE/package.json <<JSON
+        cat > $$STANDALONE/package.json <<JSON
         {
           "name": "acepay-admin",
           "version": "1.0.0",
@@ -43,7 +43,7 @@ steps:
 
         # Stops gcloud from inheriting the repo .gitignore (which excludes .next/),
         # otherwise our deploy bundle gets filtered to nothing.
-        touch $STANDALONE/.gcloudignore
+        touch $$STANDALONE/.gcloudignore
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['app', 'deploy', 'app-production.yaml', '--no-cache', '--no-promote', '--version=dev-$SHORT_SHA']
