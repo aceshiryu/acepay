@@ -1,16 +1,10 @@
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import * as Entities from './entities';
 
-// Try every plausible .env location — dotenv silently skips missing files
-// and a subsequent load won't overwrite already-set vars. Covers:
-//   * ts-node from source (db:migrate): __dirname=src/database, .env at ../../.env
-//   * webpack-built local dev: __dirname=dist, .env at ../.env (project root)
-//   * App Engine (flat /workspace): __dirname=/workspace, .env at .env (same dir)
-loadEnv({ path: resolve(__dirname, '../../.env') });
-loadEnv({ path: resolve(__dirname, '../.env') });
-loadEnv({ path: resolve(__dirname, '.env') });
+// Reads .env from process.cwd(). For db:migrate, run from apps/payment-gateway/
+// so cwd contains the .env there. On App Engine, cwd=/workspace.
+loadEnv();
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',

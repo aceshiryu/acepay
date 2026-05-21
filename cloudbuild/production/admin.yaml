@@ -22,10 +22,39 @@ steps:
       - '-e'
       - '-c'
       - |
-        cp apps/payment-admin/app-production.yaml apps/payment-admin/dist/app-production.yaml
+        # Stage Next.js standalone output as the deploy bundle root.
+        mkdir -p apps/payment-admin/dist
+        cp -r apps/payment-admin/.next/standalone/. apps/payment-admin/dist/
+
+        # Static assets served by App Engine's static_dir handler.
         mkdir -p apps/payment-admin/dist/static_directories_copy/_next_static
-        cp -r apps/payment-admin/.next/static/* apps/payment-admin/dist/static_directories_copy/_next_static
+        cp -r apps/payment-admin/.next/static/. apps/payment-admin/dist/static_directories_copy/_next_static/
+
+        # Public assets — standalone output omits these.
+        mkdir -p apps/payment-admin/dist/apps/payment-admin/public
+        cp -r apps/payment-admin/public/. apps/payment-admin/dist/apps/payment-admin/public/
+
+        # App Engine config + robots.
+        cp apps/payment-admin/app-production.yaml apps/payment-admin/dist/app-production.yaml
         cp apps/payment-admin/robots.txt apps/payment-admin/dist/robots.txt
+
+        # package.json so `npm start` resolves to the standalone server and
+        # App Engine's `npm install` pulls in next/react if standalone's
+        # node_modules wasn't fully populated.
+        cat > apps/payment-admin/dist/package.json <<JSON
+        {
+          "name": "acepay-admin",
+          "version": "1.0.0",
+          "private": true,
+          "scripts": { "start": "node apps/payment-admin/server.js" },
+          "engines": { "node": "22" },
+          "dependencies": {
+            "next": "~16.1.6",
+            "react": "^19.0.0",
+            "react-dom": "^19.0.0"
+          }
+        }
+        JSON
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['app', 'deploy', 'app-production.yaml', '--no-cache']

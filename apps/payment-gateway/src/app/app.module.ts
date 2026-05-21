@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { resolve } from 'path';
 import { AuthModule } from '../auth/auth.module';
 import { QueueModule } from '../common/queue/queue.module';
 import { DatabaseModule } from '../database/database.module';
@@ -24,13 +23,8 @@ import { WebhooksModule } from '../modules/webhooks/webhooks.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      // Order matters: ConfigModule reads the first existing file.
-      // App Engine deploys dist contents into /workspace, so .env sits next
-      // to main.js. Locally (webpack output), .env is one dir above dist.
-      envFilePath: [
-        resolve(__dirname, '.env'),
-        resolve(__dirname, '../.env'),
-      ],
+      // Default behavior: reads .env from process.cwd() — works on App Engine
+      // (cwd=/workspace) and locally when run from the gateway's directory.
     }),
     DatabaseModule,
     QueueModule,

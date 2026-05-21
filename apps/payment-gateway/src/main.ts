@@ -2,13 +2,10 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'path';
-// Load .env from multiple candidate paths — dotenv silently skips missing ones,
-// and a load won't overwrite already-set vars. Covers:
-//   * App Engine: dist contents flattened into /workspace, .env at /workspace/.env  →  __dirname='.env'
-//   * Local dev / webpack output: __dirname=dist, .env at the project root one up
-loadEnv({ path: resolve(__dirname, '.env') });
-loadEnv({ path: resolve(__dirname, '../.env') });
+// Loads .env from process.cwd(). On App Engine, cwd is /workspace where the
+// deployment .env sits next to main.js. For local dev, run the gateway from
+// apps/payment-gateway/ so cwd contains the .env there.
+loadEnv();
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {

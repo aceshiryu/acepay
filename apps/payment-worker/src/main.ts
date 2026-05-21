@@ -9,14 +9,11 @@
  * Runs as its own process so a slow customer webhook never blocks the gateway.
  */
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'path';
-// Local dev: borrow the gateway's .env (single source of truth across services).
-// App Engine deploys the worker's dist/ to /workspace with its own generated .env,
-// so try the bundled-flat location too. dotenv silently skips missing files
-// and won't overwrite already-set vars.
-loadEnv({ path: resolve(__dirname, '../../payment-gateway/.env') });
-loadEnv({ path: resolve(__dirname, '.env') });
-loadEnv({ path: resolve(__dirname, '../.env') });
+// Reads .env from process.cwd(). On App Engine, cwd=/workspace where the
+// deployment .env sits. For local dev, run the worker from apps/payment-worker/
+// (or symlink apps/payment-gateway/.env into apps/payment-worker/.env so both
+// services share one source of truth locally).
+loadEnv();
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
