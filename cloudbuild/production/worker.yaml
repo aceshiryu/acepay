@@ -40,6 +40,19 @@ steps:
       - |
         cp apps/payment-worker/app-production.yaml apps/payment-worker/dist/app-production.yaml
 
+  - name: bash:5
+    id: VERIFY-ENV
+    args:
+      - '-c'
+      - |
+        echo "=== Non-secret env values (verify these) ==="
+        grep -E '^(NODE_ENV|DB_SSL|DB_LOGGING|LEMONSQUEEZY_TEST_MODE)=' apps/payment-worker/dist/.env || echo '(none found!)'
+        echo ""
+        echo "=== Secret env presence (key=set/unset) ==="
+        for k in DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME REDIS_URL WEBHOOK_SECRET_ENCRYPTION_KEY LEMONSQUEEZY_API_KEY LEMONSQUEEZY_STORE_ID LEMONSQUEEZY_WEBHOOK_SECRET LEMONSQUEEZY_VARIANT_ID XENDIT_SECRET_KEY XENDIT_WEBHOOK_TOKEN; do
+          if grep -q "^$k=" apps/payment-worker/dist/.env; then echo "$k=set"; else echo "$k=UNSET"; fi
+        done
+
   - name: 'gcr.io/cloud-builders/gcloud'
     id: COPY-ROBOTS-TXT
     entrypoint: bash
