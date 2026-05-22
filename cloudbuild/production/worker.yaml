@@ -49,19 +49,12 @@ steps:
       - |
         cp apps/payment-worker/robots.txt apps/payment-worker/dist/robots.txt
 
-  - id: npm-install
-    name: node:$_NODE_VERSION
-    entrypoint: npm
-    args: ['install', '--omit=dev']
-    dir: 'apps/payment-worker/dist'
-
-  # Empty .gcloudignore inside the deploy dir stops gcloud from inheriting the
-  # repo .gitignore (which excludes node_modules + dist). Without this, the
-  # node_modules we just installed never reach App Engine and the worker boots
-  # with MODULE_NOT_FOUND.
+  # .gcloudignore excludes node_modules (would blow App Engine's 10k-file
+  # limit). App Engine runs `npm install --production` server-side from the
+  # uploaded package.json + package-lock.json after deploy.
   - name: bash:5
     id: WRITE-GCLOUDIGNORE
-    args: ['-c', 'touch apps/payment-worker/dist/.gcloudignore']
+    args: ['-c', 'echo node_modules/ > apps/payment-worker/dist/.gcloudignore']
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['app', 'deploy', 'app-production.yaml', '--no-cache']

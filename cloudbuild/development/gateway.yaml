@@ -55,17 +55,11 @@ steps:
       - |
         cp apps/payment-gateway/robots.txt apps/payment-gateway/dist/robots.txt
 
-  - id: npm-install
-    name: node:$_NODE_VERSION
-    entrypoint: npm
-    args: ['install', '--omit=dev']
-    dir: 'apps/payment-gateway/dist'
-
-  # Empty .gcloudignore stops gcloud from inheriting the repo .gitignore which
-  # excludes node_modules — otherwise the just-installed deps never reach App Engine.
+  # .gcloudignore excludes node_modules (App Engine 10k-file limit). App Engine
+  # runs `npm install --production` server-side from package.json after deploy.
   - name: bash:5
     id: WRITE-GCLOUDIGNORE
-    args: ['-c', 'touch apps/payment-gateway/dist/.gcloudignore']
+    args: ['-c', 'echo node_modules/ > apps/payment-gateway/dist/.gcloudignore']
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
