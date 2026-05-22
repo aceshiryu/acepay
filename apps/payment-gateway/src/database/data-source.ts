@@ -1,10 +1,8 @@
-import { config as loadEnv } from 'dotenv';
+// Side-effect import — runs dotenv.config() at import time, before TypeORM
+// reads env. Goes first so it runs before any other code in this module.
+import 'dotenv/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import * as Entities from './entities';
-
-// Reads .env from process.cwd(). For db:migrate, run from apps/payment-gateway/
-// so cwd contains the .env there. On App Engine, cwd=/workspace.
-loadEnv();
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',

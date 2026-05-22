@@ -8,12 +8,11 @@
  *
  * Runs as its own process so a slow customer webhook never blocks the gateway.
  */
-import { config as loadEnv } from 'dotenv';
-// Reads .env from process.cwd(). On App Engine, cwd=/workspace where the
-// deployment .env sits. For local dev, run the worker from apps/payment-worker/
-// (or symlink apps/payment-gateway/.env into apps/payment-worker/.env so both
-// services share one source of truth locally).
-loadEnv();
+// MUST be the first import — `dotenv/config` runs config() as a side effect at
+// import time, so by the time later imports (AppModule → DatabaseModule →
+// TypeOrm) read process.env, the .env values are already populated. ES imports
+// are hoisted, so calling loadEnv() inline below other imports runs too late.
+import 'dotenv/config';
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

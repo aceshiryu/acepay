@@ -1,11 +1,12 @@
+// MUST be the first import — `dotenv/config` runs config() as a side effect at
+// import time, so by the time later imports (AppModule → DatabaseModule →
+// TypeOrm) read process.env, the .env values are already populated. ES imports
+// are hoisted, so calling loadEnv() inline below other imports runs too late.
+import 'dotenv/config';
+
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { config as loadEnv } from 'dotenv';
-// Loads .env from process.cwd(). On App Engine, cwd is /workspace where the
-// deployment .env sits next to main.js. For local dev, run the gateway from
-// apps/payment-gateway/ so cwd contains the .env there.
-loadEnv();
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {

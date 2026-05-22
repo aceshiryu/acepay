@@ -58,8 +58,14 @@ steps:
   - id: npm-install
     name: node:$_NODE_VERSION
     entrypoint: npm
-    args: ['install']
+    args: ['install', '--omit=dev']
     dir: 'apps/payment-gateway/dist'
+
+  # Empty .gcloudignore stops gcloud from inheriting the repo .gitignore which
+  # excludes node_modules — otherwise the just-installed deps never reach App Engine.
+  - name: bash:5
+    id: WRITE-GCLOUDIGNORE
+    args: ['-c', 'touch apps/payment-gateway/dist/.gcloudignore']
 
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
