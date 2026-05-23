@@ -19,16 +19,29 @@ if (!out) {
   process.exit(1);
 }
 
+// Must match every env var the gateway / worker / data-source actually read.
+// Cloud Build's secretEnv populates process.env; this script then filters by
+// this whitelist when writing the deploy-time .env. Names not in this list
+// silently disappear from the .env even if Secret Manager has them.
 const KEYS = [
   // Runtime
   'NODE_ENV',
   'PORT',
   'CORS_ORIGINS',
-  // Data layer
-  'DATABASE_URL',
+  'PUBLIC_BASE_URL',
+  // Database (Postgres / Supabase) — discrete vars, not a URL
+  'DB_HOST',
+  'DB_PORT',
+  'DB_USER',
+  'DB_PASSWORD',
+  'DB_NAME',
+  'DB_SSL',
+  'DB_LOGGING',
+  // Redis (Bull queues)
   'REDIS_URL',
   // Crypto
-  'JWT_SECRET',
+  'ADMIN_JWT_SECRET',
+  'ADMIN_JWT_TTL_HOURS',
   'WEBHOOK_SECRET_ENCRYPTION_KEY',
   // Lemon Squeezy
   'LEMONSQUEEZY_API_KEY',
@@ -39,9 +52,9 @@ const KEYS = [
   // Xendit
   'XENDIT_SECRET_KEY',
   'XENDIT_WEBHOOK_TOKEN',
-  // Admin seed (gateway only)
-  'ADMIN_USER_EMAIL',
-  'ADMIN_USER_PASSWORD',
+  // Admin seed (gateway only — npm run seed:admin)
+  'SEED_ADMIN_EMAIL',
+  'SEED_ADMIN_PASSWORD',
 ];
 
 const escape = (v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
