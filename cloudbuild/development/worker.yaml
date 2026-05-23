@@ -62,6 +62,27 @@ steps:
       - |
         cp apps/payment-worker/robots.txt apps/payment-worker/dist/robots.txt
 
+  # Rewrite dist/package.json as a slim App-Engine-friendly version.
+  - name: node:$_NODE_VERSION
+    id: SLIM-PACKAGE-JSON
+    entrypoint: node
+    args:
+      - '-e'
+      - |
+        const fs = require('fs');
+        const src = JSON.parse(fs.readFileSync('apps/payment-worker/dist/package.json'));
+        const out = {
+          name: 'acepay-payment-worker',
+          version: src.version || '1.0.0',
+          private: true,
+          scripts: { start: 'node main.js' },
+          engines: { node: '22' },
+          main: 'main.js',
+          dependencies: src.dependencies || {},
+        };
+        fs.writeFileSync('apps/payment-worker/dist/package.json', JSON.stringify(out, null, 2));
+        console.log('Wrote slim package.json with', Object.keys(out.dependencies).length, 'deps');
+
   # .gcloudignore excludes node_modules (App Engine 10k-file limit). App Engine
   # runs `npm install --production` server-side from package.json after deploy.
   - name: bash:5
