@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { resolve } from 'path';
 import { DatabaseModule } from '../../../payment-gateway/src/database/database.module';
 import { QueueModule } from '../../../payment-gateway/src/common/queue/queue.module';
 import { CommonServicesModule } from '../../../payment-gateway/src/common/services/common-services.module';
 import {
-  Customer, Subscription, Transaction, WebhookEvent,
+  App, Customer, Subscription, Transaction, WebhookEvent,
 } from '../../../payment-gateway/src/database/entities';
 import { PaymentProvidersModule } from '../../../payment-gateway/src/payment-providers/payment-providers.module';
 import { WebhookDeliveryProcessor } from './processors/webhook-delivery.processor';
@@ -17,13 +16,14 @@ import { SubscriptionBillingProcessor } from './processors/subscription-billing.
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: resolve(__dirname, '../../../payment-gateway/.env'),
+      // .env already loaded by main.ts via `import 'dotenv/config'`. This
+      // module just exposes those values through ConfigService.
     }),
     DatabaseModule,
     QueueModule,
     CommonServicesModule,
     PaymentProvidersModule,
-    TypeOrmModule.forFeature([Subscription, Customer, Transaction, WebhookEvent]),
+    TypeOrmModule.forFeature([App, Subscription, Customer, Transaction, WebhookEvent]),
   ],
   providers: [
     WebhookDeliveryProcessor,
