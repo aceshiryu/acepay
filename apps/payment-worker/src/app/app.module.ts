@@ -8,6 +8,7 @@ import {
   App, Customer, Subscription, Transaction, WebhookEvent,
 } from '../../../payment-gateway/src/database/entities';
 import { PaymentProvidersModule } from '../../../payment-gateway/src/payment-providers/payment-providers.module';
+import { HealthController } from './health.controller';
 import { WebhookDeliveryProcessor } from './processors/webhook-delivery.processor';
 import { ReconcileStaleProcessor } from './processors/reconcile-stale.processor';
 import { SubscriptionBillingProcessor } from './processors/subscription-billing.processor';
@@ -25,6 +26,7 @@ import { SubscriptionBillingProcessor } from './processors/subscription-billing.
     PaymentProvidersModule,
     TypeOrmModule.forFeature([App, Subscription, Customer, Transaction, WebhookEvent]),
   ],
+  controllers: [HealthController],
   providers: [
     WebhookDeliveryProcessor,
     ReconcileStaleProcessor,

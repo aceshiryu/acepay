@@ -18,7 +18,20 @@ export const RECONCILE_STALE_QUEUE = 'reconcile-stale';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
-        return { url };
+        const isTls = url.startsWith('rediss://');
+        return {
+          url,
+          redis: {
+            // Upstash + most managed Redis providers need explicit TLS config
+            // even when the URL says rediss://. Empty object enables default TLS.
+            ...(isTls && { tls: {} }),
+            // Bull requires these — without them, ioredis kills the connection
+            // after 20 retries (MaxRetriesPerRequestError) and the worker crashes
+            // instead of patiently reconnecting through transient blips.
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+          },
+        };
       },
     }),
     BullModule.registerQueue(
