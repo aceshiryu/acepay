@@ -31,6 +31,22 @@ export const RECONCILE_STALE_QUEUE = 'reconcile-stale';
             maxRetriesPerRequest: null,
             enableReadyCheck: false,
           },
+          // Reduce idle polling chatter to ~6× fewer Redis commands. With 3
+          // queues × default 5s polling, the worker burns ~155K commands/day
+          // doing nothing — enough to exhaust Upstash's 10K/day free tier in
+          // hours. With these settings, idle polling drops to ~25K/day, and
+          // jobs still pick up within the configured drainDelay window.
+          settings: {
+            // How long Bull waits between empty job-list checks. Higher = fewer
+            // commands, slightly higher pickup latency. 30s is fine for webhook
+            // delivery + subscription billing; tighten if you need <30s job pickup.
+            drainDelay: 30,
+            // How often to check for "stuck" in-flight jobs that crashed mid-
+            // process. 60s is generous; default is 30s.
+            stalledInterval: 60_000,
+            // Lockout duration for in-flight jobs. Should be >> max job runtime.
+            lockDuration: 60_000,
+          },
         };
       },
     }),
