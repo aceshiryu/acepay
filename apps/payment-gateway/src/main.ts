@@ -15,7 +15,22 @@ async function bootstrap() {
   const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:4000,http://localhost:3000')
     .split(',').map((s) => s.trim()).filter(Boolean);
   app.enableCors({
-    origin: corsOrigins,
+    // Allowed if:
+    //   * no Origin header (server-to-server, curl, etc.)
+    //   * Origin is in the explicit CORS_ORIGINS allowlist
+    //   * Origin is any *.as.r.appspot.com subdomain (covers prod admin URL
+    //     plus version-prefixed URLs like dev-<sha>-dot-admin-dot-<proj>...)
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin) return cb(null, true);
+      if (corsOrigins.includes(origin)) return cb(null, true);
+      try {
+        const host = new URL(origin).hostname;
+        if (host.endsWith('.as.r.appspot.com') || host.endsWith('.appspot.com')) {
+          return cb(null, true);
+        }
+      } catch { /* malformed Origin — fall through to deny */ }
+      cb(new Error(`CORS blocked: ${origin}`), false);
+    },
     credentials: false,
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
