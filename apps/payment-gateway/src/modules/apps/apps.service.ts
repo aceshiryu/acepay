@@ -120,6 +120,27 @@ export class AppsService {
       }
     }
 
+    // Reject before opening the transaction if two inline plans would collide
+    // on the (app_id, slug) unique key. Common case: operator names two plans
+    // "Pro Monthly" (one for LS / international, one for Xendit / local) —
+    // both slugify to "pro-monthly". Without this check the second insert
+    // explodes with a 500 and the user sees nothing useful.
+    const slugCounts = new Map<string, string[]>();
+    for (const rp of resolvedPlans) {
+      const s = slugify(rp.title);
+      const titles = slugCounts.get(s) ?? [];
+      titles.push(rp.title);
+      slugCounts.set(s, titles);
+    }
+    const collisions = [...slugCounts.values()].filter((titles) => titles.length > 1);
+    if (collisions.length > 0) {
+      const offenders = collisions.map((titles) => titles.map((t) => `"${t}"`).join(' / ')).join('; ');
+      throw new BadRequestException({
+        error: 'plan_slug_collision',
+        message: `Plans would share the same slug — rename one of: ${offenders}. Tip: append the region (e.g. "Pro Monthly (PH)" vs "Pro Monthly (Global)").`,
+      });
+    }
+
     const apiKey = generateApiKey(slug, 'live');
     const webhookSecret = generateWebhookSecret();
 
