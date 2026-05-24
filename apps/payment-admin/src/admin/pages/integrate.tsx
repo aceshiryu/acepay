@@ -52,7 +52,7 @@ export function IntegrationGuidePage({ onNavigate, onBack }: { onNavigate: Navig
           <div style={{ padding: '18px 22px 22px' }}>
             <FlowStep n={1} label="Operator registers plans in AcePay" detail="One-time setup: register your app + its subscription plans (e.g. Pro Monthly ₱299, Pro Annual ₱2,990). Each plan picks a provider — Lemon Squeezy or Xendit." />
             <FlowStep n={2} label="Customer wants to subscribe" detail="They click a 'Subscribe' button in your app." />
-            <FlowStep n={3} label="Your app calls AcePay" detail="One POST with the plan ID, the customer ID, and where to send the customer back. AcePay routes to whichever provider the plan uses." />
+            <FlowStep n={3} label="Your app calls AcePay" detail="One POST with the plan ID, the customer's details (externalId, email, name), and where to send the customer back. AcePay creates the customer on first call and reuses it after — no separate customer step needed. Routes to whichever provider the plan uses." />
             <FlowStep n={4} label="AcePay returns a checkout link" detail="A URL hosted by the provider where the customer enters their card (LS) or picks a payment method (Xendit — card / GCash / Maya / GrabPay / bank / OTC)." />
             <FlowStep n={5} label="Customer pays for the first time" detail="The provider collects the card or wallet token, saves it for future renewals, and redirects back to your success URL." />
             <FlowStep n={6} label="AcePay tells your app the subscription is live" detail="A POST to your webhook URL: 'subscription.created' with all your original metadata." />
@@ -179,26 +179,54 @@ const response = await fetch('${API_BASE_URL}/v1/plans', {
 });
 
 const { data: plans } = await response.json();
-// plans → [{ id, name, amount, currency, interval, description, country, ... }]
 
 // Render them on your /pricing page however you like.
-// Example: filter by country if you have region-specific plans.
-const phPlans = plans.filter(p => p.country === 'PH' || p.country === null);`}</CodeBlock>
+// Example: only show local (PH) plans to PH visitors.
+const phPlans = plans.filter(p => p.region === 'local');`}</CodeBlock>
+          <SampleResponse>{`{
+  "data": [
+    {
+      "id":             "a7c9f4b2-1e8d-4f6a-9c3b-2d8e7f1a5c9d",
+      "name":           "Pro Monthly",
+      "slug":           "pro-monthly",
+      "description":    "Best for solo users",
+      "amount":         29900,
+      "currency":       "PHP",
+      "interval":       "monthly",
+      "intervalCount":  1,
+      "provider":       "xendit",
+      "providerPlanId": "xendit_acepay_pro-monthly",
+      "region":         "local",
+      "isActive":       true,
+      "createdAt":      "2026-05-01T03:00:00Z",
+      "updatedAt":      "2026-05-01T03:00:00Z"
+    }
+  ],
+  "total":    1,
+  "page":     1,
+  "pageSize": 20
+}`}</SampleResponse>
           <p style={{ ...prose }}>
             You can also fetch a single plan with <code className="mono">GET /v1/plans/&#123;id&#125;</code> if you only need one.
           </p>
         </Section>
 
-        {/* Step 4 — Customer */}
+        {/* Step 4 — Customer (optional) */}
         <Section
           number={4}
-          title="Create the customer in AcePay"
-          subtitle="Before someone subscribes, AcePay needs to know who they are."
+          title="(Optional) Pre-create the customer"
+          subtitle="Skip this if you don't have a reason to. Step 5 creates the customer automatically."
         >
+          <Callout icon="info">
+            <strong>Most apps don&apos;t need this.</strong> When you call <code className="mono">POST /v1/subscriptions</code>
+            in step 5, you can pass the customer&apos;s details inline and AcePay creates (or reuses) the customer
+            in one shot. Use this endpoint only when you want to register the customer ahead of time — for
+            example, during sign-up before they pick a plan.
+          </Callout>
           <p style={{ ...prose }}>
-            For each user that&apos;s about to subscribe, register them with AcePay first. If you call
-            this for a user that already exists (matched by your <code className="mono">externalId</code>),
-            AcePay just returns the existing customer — safe to call repeatedly.
+            AcePay matches existing customers by your <code className="mono">externalId</code> first, then by email.
+            If a match is found, the existing record is updated and returned; otherwise a new one is created.
+            Safe to call repeatedly.
           </p>
           <CodeBlock>{`const customer = await fetch('${API_BASE_URL}/v1/customers', {
   method: 'POST',
@@ -213,19 +241,31 @@ const phPlans = plans.filter(p => p.country === 'PH' || p.country === null);`}</
   }),
 }).then(r => r.json());
 
-// customer.id is the AcePay UUID — save this with the user record in your DB.
+// customer.id is the AcePay UUID — save this with the user record in your DB
+// if you want to reference the same customer in future calls.
 const acepayCustomerId = customer.id;`}</CodeBlock>
+          <SampleResponse>{`{
+  "id":         "f2e4b8a1-9c3d-4a6e-8f1b-2c7d9e3a5b8f",
+  "appId":      "b5d1c9e8-3a2f-4b7c-9d6e-1a8f3c5b7d2e",
+  "externalId": "user_42",
+  "email":      "jane@example.com",
+  "name":       "Jane Doe",
+  "metadata":   {},
+  "createdAt":  "2026-05-24T08:30:00Z",
+  "updatedAt":  "2026-05-24T08:30:00Z"
+}`}</SampleResponse>
         </Section>
 
         {/* Step 5 — Create subscription */}
         <Section
           number={5}
           title="Start the subscription"
-          subtitle="POST /v1/subscriptions. AcePay returns a checkoutUrl — that's where you send the customer."
+          subtitle="POST /v1/subscriptions. Pass the customer's details inline — AcePay creates the customer for you on first call. Returns a checkoutUrl where you send the customer."
         >
           <p style={{ ...prose }}>
-            This is where your customer commits to a plan. AcePay creates the subscription record, generates a
-            Lemon Squeezy checkout, and returns the URL you redirect to.
+            This is the one call you need to start a subscription. AcePay creates the customer (or reuses
+            an existing one matched by externalId/email), creates the subscription record, asks the provider
+            for a hosted checkout, and returns the URL.
           </p>
           <CodeBlock>{`const { subscription, checkoutUrl } = await fetch(
   '${API_BASE_URL}/v1/subscriptions',
@@ -236,8 +276,12 @@ const acepayCustomerId = customer.id;`}</CodeBlock>
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      planId:     'plan_uuid_for_pro_monthly',   // from step 3
-      customerId: acepayCustomerId,              // from step 4
+      planId: 'plan_uuid_for_pro_monthly',       // from step 3
+      customer: {                                // auto-creates or reuses
+        externalId: 'user_42',                   // your app's user id
+        email:      'jane@example.com',
+        name:       'Jane Doe',
+      },
       redirect: {
         success: 'https://yourapp.com/subscribe/success',
         failed:  'https://yourapp.com/subscribe/canceled',
@@ -253,6 +297,34 @@ const acepayCustomerId = customer.id;`}</CodeBlock>
 // subscription.id is the AcePay UUID. Save it on the user record.
 // Then send them to checkout:
 res.redirect(checkoutUrl);`}</CodeBlock>
+          <SampleResponse>{`{
+  "subscription": {
+    "id":                     "9b4f2e7c-8a1d-4f5c-b3e6-7d2a9c1f4b8e",
+    "appId":                  "b5d1c9e8-3a2f-4b7c-9d6e-1a8f3c5b7d2e",
+    "customerId":             "f2e4b8a1-9c3d-4a6e-8f1b-2c7d9e3a5b8f",
+    "planId":                 "a7c9f4b2-1e8d-4f6a-9c3b-2d8e7f1a5c9d",
+    "provider":               "xendit",
+    "providerSubscriptionId": "654ab12cdef9876543210000",
+    "status":                 "active",
+    "currentPeriodStart":     null,
+    "currentPeriodEnd":       null,
+    "cancelAt":               null,
+    "canceledAt":             null,
+    "metadata": {
+      "user_id": "user_42",
+      "promo":   "spring_sale",
+      "awaitingFirstPayment": true,
+      "checkoutUrl": "https://checkout.xendit.co/web/654ab12cdef9876543210000"
+    },
+    "createdAt":              "2026-05-24T08:30:01Z",
+    "updatedAt":              "2026-05-24T08:30:01Z"
+  },
+  "checkoutUrl": "https://checkout.xendit.co/web/654ab12cdef9876543210000"
+}`}</SampleResponse>
+          <Callout icon="info">
+            <strong>Already have an AcePay customer ID?</strong> Pass <code className="mono">customerId</code>
+            instead of the <code className="mono">customer</code> block. AcePay accepts either — never both.
+          </Callout>
           <Callout icon="info">
             <strong>The subscription doesn&apos;t bill immediately.</strong> It&apos;s in an
             &quot;awaiting first payment&quot; state until the customer completes checkout. The flag
@@ -433,6 +505,25 @@ await fetch(
   '${API_BASE_URL}/v1/subscriptions/sub_abc123/resume',
   { method: 'POST', headers: { 'x-api-key': '${apiKey}' } }
 );`}</CodeBlock>
+          <SampleResponse label="Sample response (cancel)">{`{
+  "id":                     "9b4f2e7c-8a1d-4f5c-b3e6-7d2a9c1f4b8e",
+  "appId":                  "b5d1c9e8-3a2f-4b7c-9d6e-1a8f3c5b7d2e",
+  "customerId":             "f2e4b8a1-9c3d-4a6e-8f1b-2c7d9e3a5b8f",
+  "planId":                 "a7c9f4b2-1e8d-4f6a-9c3b-2d8e7f1a5c9d",
+  "provider":               "xendit",
+  "providerSubscriptionId": "654ab12cdef9876543210000",
+  "status":                 "canceled",
+  "currentPeriodStart":     "2026-05-24T08:31:14Z",
+  "currentPeriodEnd":       "2026-06-24T08:31:14Z",
+  "cancelAt":               "2026-06-24T08:31:14Z",
+  "canceledAt":             "2026-05-30T11:02:00Z",
+  "metadata": {
+    "user_id":      "user_42",
+    "cancelReason": "too expensive"
+  },
+  "createdAt":              "2026-05-24T08:30:01Z",
+  "updatedAt":              "2026-05-30T11:02:00Z"
+}`}</SampleResponse>
           <p style={{ ...prose }}>
             You don&apos;t need to immediately revoke access on cancel — wait for the
             <code className="mono"> subscription.expired</code> webhook when the paid period ends.
@@ -471,12 +562,62 @@ const { data: cycles } = await fetch(
   { headers: { 'x-api-key': '${apiKey}' } }
 ).then(r => r.json());
 
-// Or force AcePay to check LS RIGHT NOW for a specific transaction
+// Or force AcePay to check the provider RIGHT NOW for a specific transaction
 // and re-send the webhook if anything changed:
-await fetch(
+const syncResult = await fetch(
   '${API_BASE_URL}/v1/payments/tx_def456/sync',
   { method: 'POST', headers: { 'x-api-key': '${apiKey}' } }
-);`}</CodeBlock>
+).then(r => r.json());`}</CodeBlock>
+          <SampleResponse label="Sample response (GET subscription)">{`{
+  "id":                     "9b4f2e7c-8a1d-4f5c-b3e6-7d2a9c1f4b8e",
+  "appId":                  "b5d1c9e8-3a2f-4b7c-9d6e-1a8f3c5b7d2e",
+  "customerId":             "f2e4b8a1-9c3d-4a6e-8f1b-2c7d9e3a5b8f",
+  "planId":                 "a7c9f4b2-1e8d-4f6a-9c3b-2d8e7f1a5c9d",
+  "provider":               "xendit",
+  "providerSubscriptionId": "654ab12cdef9876543210000",
+  "status":                 "active",
+  "currentPeriodStart":     "2026-05-24T08:31:14Z",
+  "currentPeriodEnd":       "2026-06-24T08:31:14Z",
+  "cancelAt":               null,
+  "canceledAt":             null,
+  "metadata": { "user_id": "user_42" },
+  "createdAt":              "2026-05-24T08:30:01Z",
+  "updatedAt":              "2026-05-24T08:31:14Z"
+}`}</SampleResponse>
+          <SampleResponse label="Sample response (list billing cycles)">{`{
+  "data": [
+    {
+      "id":           "3e5b8d1c-7f9a-4b2c-9d6e-1a8f3c5b7d2e",
+      "type":         "subscription_payment",
+      "status":       "succeeded",
+      "amount":       29900,
+      "currency":     "PHP",
+      "provider":     "xendit",
+      "providerTxId": "pr-7f3a9b2c4d6e8f1a3b5c7d9e",
+      "createdAt":    "2026-06-24T08:31:14Z"
+    },
+    {
+      "id":           "1c8e2f5a-9b3d-4f6c-a7e1-2d8f5b3c9a1e",
+      "type":         "subscription_payment",
+      "status":       "succeeded",
+      "amount":       29900,
+      "currency":     "PHP",
+      "provider":     "xendit",
+      "providerTxId": "pr-8b3c5d7e9f1a3b5c7d9e2f4a",
+      "createdAt":    "2026-05-24T08:31:14Z"
+    }
+  ],
+  "total":    2,
+  "page":     1,
+  "pageSize": 20
+}`}</SampleResponse>
+          <SampleResponse label="Sample response (force sync)">{`{
+  "transactionId": "tx_def456",
+  "before":        "pending",
+  "after":         "succeeded",
+  "changed":       true,
+  "notifiedApp":   true
+}`}</SampleResponse>
         </Section>
 
         {/* Step 9 — Refunds */}
@@ -486,14 +627,29 @@ await fetch(
           subtitle="Each renewal is a Transaction in AcePay — refund individual cycles, not the whole subscription."
         >
           <CodeBlock>{`// Refund one billing cycle (full amount of that cycle)
-await fetch(
+const refunded = await fetch(
   '${API_BASE_URL}/v1/payments/tx_def456/refund',
   {
     method: 'POST',
     headers: { 'x-api-key': '${apiKey}', 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason: 'Service outage credit' }),
   }
-);`}</CodeBlock>
+).then(r => r.json());`}</CodeBlock>
+          <SampleResponse>{`{
+  "id":           "3e5b8d1c-7f9a-4b2c-9d6e-1a8f3c5b7d2e",
+  "type":         "subscription_payment",
+  "status":       "refunded",
+  "amount":       29900,
+  "currency":     "PHP",
+  "provider":     "xendit",
+  "providerTxId": "pr-7f3a9b2c4d6e8f1a3b5c7d9e",
+  "metadata": {
+    "refundReason": "Service outage credit",
+    "refundedAt":   "2026-06-25T10:15:00Z"
+  },
+  "createdAt":    "2026-06-24T08:31:14Z",
+  "updatedAt":    "2026-06-25T10:15:00Z"
+}`}</SampleResponse>
           <p style={{ ...prose }}>
             When the refund clears (a few minutes to a few hours, depending on the provider),
             AcePay POSTs <code className="mono">refund.succeeded</code> to your webhook with the
@@ -701,6 +857,18 @@ function ModeBanner({ mode }: { mode: Mode }) {
   );
 }
 
+function SampleResponse({ label, children }: { label?: string; children: string }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6,
+        color: 'var(--muted)', marginBottom: 4,
+      }}>{label ?? 'Sample response'}</div>
+      <CodeBlock>{children}</CodeBlock>
+    </div>
+  );
+}
+
 function Callout({ icon, children }: { icon: 'info' | 'warn'; children: ReactNode }) {
   const styles = icon === 'warn'
     ? { fg: 'var(--warn)', bg: 'var(--warn-soft)', name: 'warn' as const }
@@ -831,8 +999,7 @@ function FlowDiagram() {
 
     { phase: 'First subscription',
       from: 'customer', to: 'app', action: 'Click "Subscribe"', detail: 'On your pricing page or settings screen.' },
-    { from: 'app',      to: 'acepay',   action: 'POST /v1/customers',     detail: 'Upsert the customer by email or externalId. Returns AcePay customer ID.' },
-    { from: 'app',      to: 'acepay',   action: 'POST /v1/subscriptions', detail: 'Body: { planId, customerId, redirect: { success, failed } }.' },
+    { from: 'app',      to: 'acepay',   action: 'POST /v1/subscriptions', detail: 'Body: { planId, customer: { externalId, email, name }, redirect }. AcePay auto-creates the customer on first call (matched by externalId/email) or reuses it on retry. Returns AcePay customer ID + subscription ID.' },
     { from: 'acepay',   to: 'provider', action: 'createSubscription',     detail: 'Xendit Invoice with shouldSavePaymentMethods=true, or Lemon Squeezy Checkout. Provider returns a hosted checkout URL.' },
     { from: 'acepay',   to: 'app',      action: 'Returns { checkoutUrl }', detail: 'Your app redirects the customer to this URL.' },
     { from: 'customer', to: 'provider', action: 'Pays on hosted checkout', detail: 'Card · GCash · Maya · GrabPay · bank · OTC (Xendit), or card (LS).' },

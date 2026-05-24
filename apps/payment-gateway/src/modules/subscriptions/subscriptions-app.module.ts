@@ -4,6 +4,7 @@ import { AuthModule } from '../../auth/auth.module';
 import { CommonServicesModule } from '../../common/services/common-services.module';
 import { Customer, Subscription } from '../../database/entities';
 import { PaymentProvidersModule } from '../../payment-providers/payment-providers.module';
+import { CustomersAppModule } from '../customers/customers-app.module';
 import { PlansModule } from '../plans/plans.module';
 import { SubscriptionsAppController } from './subscriptions-app.controller';
 import { SubscriptionsAppService } from './subscriptions-app.service';
@@ -14,6 +15,7 @@ import { SubscriptionsAppService } from './subscriptions-app.service';
     PlansModule,
     PaymentProvidersModule,
     CommonServicesModule,
+    CustomersAppModule,
     TypeOrmModule.forFeature([Subscription, Customer]),
   ],
   controllers: [SubscriptionsAppController],

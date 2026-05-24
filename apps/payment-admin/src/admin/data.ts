@@ -4,7 +4,7 @@
 export type NavItem = { id: string; label: string; icon: string; href: string };
 
 export const NAV: NavItem[] = [
-  { id: 'dashboard',     label: 'Dashboard',      icon: 'dash',  href: '/' },
+  { id: 'dashboard',     label: 'Dashboard',      icon: 'dash',  href: '/dashboard' },
   { id: 'apps',          label: 'Apps',           icon: 'apps',  href: '/apps' },
   { id: 'transactions',  label: 'Transactions',   icon: 'tx',    href: '/transactions' },
   { id: 'subscriptions', label: 'Subscriptions',  icon: 'sub',   href: '/subscriptions' },

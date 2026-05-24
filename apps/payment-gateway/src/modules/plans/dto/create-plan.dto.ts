@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Length, MaxLength, Min,
 } from 'class-validator';
-import { PlanInterval, Provider } from '../../../common/enums';
+import { PlanInterval, PlanRegion, Provider } from '../../../common/enums';
 
 export class CreatePlanDto {
   @ApiProperty({ description: 'AcePay app id this plan belongs to' })
@@ -60,11 +60,13 @@ export class CreatePlanDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ example: 'PH', description: 'ISO-2 country code; null = worldwide' })
-  @IsOptional()
-  @IsString()
-  @Length(2, 2)
-  country?: string;
+  @ApiProperty({
+    enum: PlanRegion,
+    example: PlanRegion.International,
+    description: '"local" routes to Xendit (Philippines). "international" routes to Lemon Squeezy.',
+  })
+  @IsEnum(PlanRegion)
+  region!: PlanRegion;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

@@ -10,6 +10,7 @@ import {
   App, Customer, Subscription,
 } from '../../database/entities';
 import { ProviderRegistry } from '../../payment-providers/provider.registry';
+import { CustomersAppService } from '../customers/customers-app.service';
 import { PlansService } from '../plans/plans.service';
 import { CancelSubscriptionDto, CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { ListSubscriptionsAppDto } from './dto/list-subscriptions-app.dto';
@@ -26,6 +27,7 @@ export class SubscriptionsAppService {
     @InjectRepository(Customer) private readonly customers: Repository<Customer>,
     private readonly plans: PlansService,
     private readonly providers: ProviderRegistry,
+    private readonly customersApp: CustomersAppService,
   ) {}
 
   async create(app: App, dto: CreateSubscriptionDto): Promise<CreateSubscriptionResponse> {
@@ -36,12 +38,29 @@ export class SubscriptionsAppService {
       });
     }
     const plan = await this.plans.findActiveForApp(dto.planId, app.id);
-    const customer = await this.customers.findOne({
-      where: { id: dto.customerId, appId: app.id },
-    });
-    if (!customer) {
-      throw new NotFoundException({
-        error: 'customer_not_found', message: `Customer ${dto.customerId} not found`,
+
+    // Resolve the customer one of two ways:
+    //   1. caller passed an existing AcePay customerId → look it up
+    //   2. caller passed inline `customer` details → upsert (match on externalId
+    //      or email; if found, return that record; otherwise create new). This
+    //      lets the app skip the separate POST /v1/customers call on the first
+    //      subscription, and safely re-call /v1/subscriptions on retries.
+    let customer: Customer | null = null;
+    if (dto.customerId) {
+      customer = await this.customers.findOne({
+        where: { id: dto.customerId, appId: app.id },
+      });
+      if (!customer) {
+        throw new NotFoundException({
+          error: 'customer_not_found', message: `Customer ${dto.customerId} not found`,
+        });
+      }
+    } else if (dto.customer) {
+      customer = await this.customersApp.upsert(app, dto.customer);
+    } else {
+      throw new BadRequestException({
+        error: 'customer_required',
+        message: 'Either `customerId` or `customer` (inline details) is required',
       });
     }
 

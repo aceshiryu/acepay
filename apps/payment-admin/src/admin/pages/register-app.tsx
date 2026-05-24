@@ -2,7 +2,7 @@
 
 import React from 'react';
 import * as api from '../api/client';
-import { LookedUpVariant, Plan } from '../api/types';
+import { LookedUpVariant, Plan, PlanRegion } from '../api/types';
 import { InlinePlanInput } from '../api/client';
 import { Button, Card, Icon } from '../primitives';
 import { PageShell } from '../layout';
@@ -14,7 +14,7 @@ type DraftPlan = {
   provider: 'lemonsqueezy' | 'xendit';
   title: string;
   description: string;
-  country: string;
+  region: PlanRegion;
   // Lemon Squeezy:
   variantId: string;
   verifying: boolean;
@@ -31,7 +31,7 @@ const newDraftPlan = (): DraftPlan => ({
   provider: 'lemonsqueezy',
   title: '',
   description: '',
-  country: '',
+  region: 'international',
   variantId: '',
   verifying: false,
   verified: null,
@@ -125,13 +125,13 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
           variantId: p.variantId.trim(),
           title: p.title.trim() || (p.verified?.name ?? 'Plan'),
           description: p.description.trim() || undefined,
-          country: p.country.trim() ? p.country.trim().toUpperCase() : undefined,
+          region: p.region,
         }
       : {
           provider: 'xendit',
           title: p.title.trim(),
           description: p.description.trim() || undefined,
-          country: p.country.trim() ? p.country.trim().toUpperCase() : undefined,
+          region: p.region,
           amount: Math.round(Number(p.amount) * 100), // major → minor units
           currency: p.currency.toUpperCase(),
           interval: p.interval,
@@ -211,7 +211,7 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                        <span className="mono">{p.slug}</span> · variant {p.providerPlanId} · {p.country ?? 'worldwide'}
+                        <span className="mono">{p.slug}</span> · variant {p.providerPlanId} · {p.region === 'local' ? 'Local (PH)' : 'International'}
                       </div>
                     </div>
                     <div className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>
@@ -393,15 +393,15 @@ function PlanRow({ index, plan, onChange, onVerify, onRemove, canRemove }: {
             style={inputStyle}
           />
         </Field>
-        <Field label="Country" hint="ISO-2 code; leave blank for worldwide">
-          <input
-            value={plan.country}
-            onChange={(e) => onChange({ country: e.target.value.toUpperCase() })}
-            placeholder="PH"
-            maxLength={2}
-            className="mono"
-            style={inputStyle}
-          />
+        <Field label="Region" hint="Local = Philippines · International = anywhere else">
+          <select
+            value={plan.region}
+            onChange={(e) => onChange({ region: e.target.value as PlanRegion })}
+            style={{ ...inputStyle, paddingRight: 24 }}
+          >
+            <option value="international">International</option>
+            <option value="local">Local (PH)</option>
+          </select>
         </Field>
       </div>
 

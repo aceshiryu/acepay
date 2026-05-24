@@ -9,11 +9,11 @@ import { Navigate, RoutePage } from './types';
  * while the actual navigation goes through Next's App Router.
  */
 const PAGE_TO_PATH: Record<RoutePage, (param?: string | null, ctx?: string | null) => string> = {
-  dashboard:             ()           => '/',
+  dashboard:             ()           => '/dashboard',
   apps:                  ()           => '/apps',
   'app-detail':          (id)         => `/apps/${id ?? ''}`,
   'register-app':        ()           => '/apps/register',
-  integrate:             ()           => '/apps/integrate',
+  integrate:             ()           => '/how-to-use',
   transactions:          (_id, ctx)   => ctx ? `/transactions?app=${ctx}` : '/transactions',
   'transaction-detail':  (id)         => `/transactions/${id ?? ''}`,
   subscriptions:         ()           => '/subscriptions',
@@ -29,7 +29,7 @@ const PAGE_TO_PATH: Record<RoutePage, (param?: string | null, ctx?: string | nul
 
 export function pathFor(page: RoutePage, param?: string | null, ctx?: string | null): string {
   const fn = PAGE_TO_PATH[page];
-  return fn ? fn(param, ctx) : '/';
+  return fn ? fn(param, ctx) : '/dashboard';
 }
 
 export function useNavigate(): Navigate {

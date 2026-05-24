@@ -2,7 +2,7 @@ import {
   Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne,
   OneToMany, PrimaryGeneratedColumn, Unique, UpdateDateColumn,
 } from 'typeorm';
-import { PlanInterval, Provider } from '../../common/enums';
+import { PlanInterval, PlanRegion, Provider } from '../../common/enums';
 import { App } from './app.entity';
 import { Subscription } from './subscription.entity';
 
@@ -29,8 +29,8 @@ export class Plan {
   @Column({ type: 'varchar', length: 500, nullable: true })
   description?: string | null;
 
-  @Column({ type: 'varchar', length: 2, nullable: true })
-  country?: string | null;
+  @Column({ type: 'enum', enum: PlanRegion, default: PlanRegion.International })
+  region!: PlanRegion;
 
   @Column({ type: 'int' })
   amount!: number;

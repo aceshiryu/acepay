@@ -48,6 +48,11 @@ export enum PlanInterval {
   Yearly = 'yearly',
 }
 
+export enum PlanRegion {
+  Local = 'local',
+  International = 'international',
+}
+
 export enum WebhookDeliveryStatus {
   Pending = 'pending',
   Delivered = 'delivered',

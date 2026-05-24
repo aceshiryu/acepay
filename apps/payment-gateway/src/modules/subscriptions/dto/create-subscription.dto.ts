@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsObject, IsOptional, IsUrl, IsUUID, ValidateNested,
+  IsEmail, IsObject, IsOptional, IsString, IsUrl, IsUUID, MaxLength, ValidateNested,
 } from 'class-validator';
 
 export class RedirectDto {
@@ -14,14 +14,50 @@ export class RedirectDto {
   failed!: string;
 }
 
+export class InlineCustomerDto {
+  @ApiProperty({ description: "The app's own user id (unique within the app)", example: 'user_42' })
+  @IsString()
+  @MaxLength(200)
+  externalId!: string;
+
+  @ApiProperty({ example: 'juan@email.com' })
+  @IsEmail()
+  email!: string;
+
+  @ApiPropertyOptional({ example: 'Juan Dela Cruz' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
 export class CreateSubscriptionDto {
   @ApiProperty({ description: 'AcePay plan id (the plan must belong to the calling app and be active)' })
   @IsUUID()
   planId!: string;
 
-  @ApiProperty({ description: 'AcePay customer id (created via /v1/customers)' })
+  @ApiPropertyOptional({
+    description: 'AcePay customer id (from a previous /v1/customers or /v1/subscriptions call). ' +
+      'Pass this OR `customer` — not both.',
+  })
+  @IsOptional()
   @IsUUID()
-  customerId!: string;
+  customerId?: string;
+
+  @ApiPropertyOptional({
+    type: InlineCustomerDto,
+    description: 'Create-or-reuse a customer inline. Pass this on the first subscription; ' +
+      'AcePay matches by externalId or email and reuses if found.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InlineCustomerDto)
+  customer?: InlineCustomerDto;
 
   @ApiProperty({ type: RedirectDto })
   @ValidateNested()

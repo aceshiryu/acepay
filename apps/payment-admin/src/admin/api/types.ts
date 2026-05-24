@@ -2,6 +2,7 @@
 
 export type Provider = 'lemonsqueezy' | 'xendit';
 export type BillingMode = 'subscription' | 'one_time';
+export type PlanRegion = 'local' | 'international';
 export type Source = 'web' | 'mobile';
 export type TxType = 'payment' | 'refund' | 'subscription_payment';
 export type TxStatus = 'pending' | 'succeeded' | 'failed' | 'refunded';
@@ -189,7 +190,7 @@ export interface Plan {
   provider: Provider;
   providerPlanId: string;
   description: string | null;
-  country: string | null;
+  region: PlanRegion;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

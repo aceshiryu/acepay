@@ -27,7 +27,7 @@ export function Sidebar() {
   const webhookBadge = (webhookStats.data?.failed ?? 0) + (webhookStats.data?.exhausted ?? 0);
 
   const isActive = (href: string): boolean =>
-    href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
+    pathname === href || pathname.startsWith(href + '/');
 
   return (
     <aside style={{

@@ -6,7 +6,7 @@ import { DataSource, Repository } from 'typeorm';
 import {
   apiKeyPrefix, encryptSecret, generateApiKey, generateWebhookSecret, sha256,
 } from '../../common/crypto';
-import { BillingMode, Provider } from '../../common/enums';
+import { BillingMode, PlanRegion, Provider } from '../../common/enums';
 import { App, Plan } from '../../database/entities';
 import { LemonsqueezyAdapter } from '../../payment-providers/lemonsqueezy.adapter';
 import { CustomersAppService } from '../customers/customers-app.service';
@@ -66,7 +66,7 @@ export class AppsService {
     // verify the variant id against the live store; for Xendit we trust the
     // operator-entered values (Xendit has no plan resource).
     const resolvedPlans: Array<{
-      title: string; description?: string; country?: string;
+      title: string; description?: string; region: PlanRegion;
       provider: Provider; providerPlanId: string;
       amount: number; currency: string; interval: string; intervalCount: number;
     }> = [];
@@ -92,7 +92,7 @@ export class AppsService {
           });
         }
         resolvedPlans.push({
-          title: p.title, description: p.description, country: p.country,
+          title: p.title, description: p.description, region: p.region,
           provider: Provider.Lemonsqueezy, providerPlanId: p.variantId,
           amount: v.price, currency: v.currency || 'USD',
           interval: v.interval, intervalCount: v.intervalCount,
@@ -107,7 +107,7 @@ export class AppsService {
         // Xendit has no Plan object — synthesize a stable provider id from the title.
         const synthetic = `xendit_acepay_${slugify(p.title)}`;
         resolvedPlans.push({
-          title: p.title, description: p.description, country: p.country,
+          title: p.title, description: p.description, region: p.region,
           provider: Provider.Xendit, providerPlanId: synthetic,
           amount: p.amount, currency: p.currency,
           interval: p.interval, intervalCount: p.intervalCount ?? 1,
@@ -147,7 +147,7 @@ export class AppsService {
           name: rp.title,
           slug: slugify(rp.title),
           description: rp.description ?? null,
-          country: rp.country ?? null,
+          region: rp.region,
           amount: rp.amount,
           currency: rp.currency.toUpperCase(),
           interval: rp.interval as Plan['interval'],

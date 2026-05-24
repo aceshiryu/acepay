@@ -4,7 +4,7 @@ import {
   ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEnum, IsInt, IsOptional,
   IsString, IsUrl, Length, Matches, MaxLength, Min, MinLength, ValidateNested,
 } from 'class-validator';
-import { BillingMode, PlanInterval, Provider } from '../../../common/enums';
+import { BillingMode, PlanInterval, PlanRegion, Provider } from '../../../common/enums';
 
 export class InlinePlanDto {
   @ApiProperty({ enum: Provider, example: Provider.Lemonsqueezy })
@@ -22,11 +22,13 @@ export class InlinePlanDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ example: 'PH', description: 'ISO-2 country code; null = worldwide' })
-  @IsOptional()
-  @IsString()
-  @Length(2, 2)
-  country?: string;
+  @ApiProperty({
+    enum: PlanRegion,
+    example: PlanRegion.International,
+    description: '"local" routes to Xendit (Philippines). "international" routes to Lemon Squeezy.',
+  })
+  @IsEnum(PlanRegion)
+  region!: PlanRegion;
 
   // ── Lemon Squeezy ────────────────────────────────────────────────────
   @ApiPropertyOptional({

@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!loading && user) router.replace('/');
+    if (!loading && user) router.replace('/dashboard');
   }, [loading, user, router]);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -25,7 +25,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      router.replace('/');
+      router.replace('/dashboard');
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message

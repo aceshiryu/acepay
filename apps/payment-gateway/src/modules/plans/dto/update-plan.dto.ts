@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean, IsEnum, IsInt, IsOptional, IsString, Length, Min,
 } from 'class-validator';
-import { PlanInterval } from '../../../common/enums';
+import { PlanInterval, PlanRegion } from '../../../common/enums';
 
 export class UpdatePlanDto {
   @ApiPropertyOptional()
@@ -17,11 +17,10 @@ export class UpdatePlanDto {
   @Length(0, 500)
   description?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: PlanRegion })
   @IsOptional()
-  @IsString()
-  @Length(0, 2)
-  country?: string | null;
+  @IsEnum(PlanRegion)
+  region?: PlanRegion;
 
   // Price / interval fields are only honored for Xendit plans.
   // For Lemon Squeezy plans the variant is source of truth — use Verify to sync.

@@ -285,8 +285,8 @@ export function AppDetailPage({ appId, onNavigate, onBack }: { appId: string | n
                   <span style={{ color: 'var(--muted)', fontWeight: 400 }}> /{r.interval[0]}</span>
                 </span>
               )},
-              { key: 'country', label: 'Country', render: (r) => (
-                <span className="mono" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.country ?? 'worldwide'}</span>
+              { key: 'region', label: 'Region', render: (r) => (
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.region === 'local' ? 'Local (PH)' : 'International'}</span>
               )},
               { key: 'provider', label: 'Provider', render: (r) => <ProviderTag name={r.provider} size="sm" /> },
               { key: 'providerPlanId', label: 'Plan ID', render: (r) => (

@@ -3,7 +3,7 @@ import {
   CustomerListRow, CustomersStats, Customer,
   DashboardStats, LoginResponse, LookedUpVariant,
   Notification, NotificationSeverity, NotificationStats,
-  Paged, Plan, ProviderHealth,
+  Paged, Plan, PlanRegion, ProviderHealth,
   Subscription, SubscriptionStats,
   Transaction, TransactionLog, TransactionStats,
   WebhookEvent, WebhookStats,
@@ -113,7 +113,7 @@ export interface InlinePlanInput {
   provider: 'lemonsqueezy' | 'xendit';
   title: string;
   description?: string;
-  country?: string;
+  region: PlanRegion;
   // Lemon Squeezy:
   variantId?: string;
   // Xendit (AcePay-managed schedule, no provider plan resource):
@@ -260,7 +260,7 @@ export interface CreatePlanBody {
   provider: string;
   providerPlanId?: string;
   description?: string;
-  country?: string;
+  region: PlanRegion;
   isActive?: boolean;
 }
 export const plans = {
@@ -270,7 +270,7 @@ export const plans = {
   update:  (id: string, body: Partial<{
     name: string;
     description: string | null;
-    country: string | null;
+    region: PlanRegion;
     amount: number;
     currency: string;
     interval: 'weekly' | 'monthly' | 'yearly';

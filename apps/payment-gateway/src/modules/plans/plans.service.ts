@@ -81,7 +81,7 @@ export class PlansService {
       name: dto.name,
       slug: dto.slug,
       description: dto.description ?? null,
-      country: dto.country ?? null,
+      region: dto.region,
       amount,
       currency: currency.toUpperCase(),
       interval,
@@ -132,7 +132,7 @@ export class PlansService {
     }
     if (dto.name != null)          plan.name = dto.name;
     if (dto.description !== undefined) plan.description = dto.description?.trim() ? dto.description.trim() : null;
-    if (dto.country !== undefined) plan.country = dto.country?.trim() ? dto.country.trim().toUpperCase() : null;
+    if (dto.region != null)        plan.region = dto.region;
     if (dto.amount != null)        plan.amount = dto.amount;
     if (dto.currency != null)      plan.currency = dto.currency.toUpperCase();
     if (dto.interval != null)      plan.interval = dto.interval;

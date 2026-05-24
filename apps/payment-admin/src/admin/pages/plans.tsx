@@ -5,7 +5,7 @@ import * as api from '../api/client';
 import { formatAmountCompact, formatDateTime } from '../api/format';
 import { LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
-import { Plan } from '../api/types';
+import { Plan, PlanRegion } from '../api/types';
 import { PageShell } from '../layout';
 import {
   AppAvatar, Button, Card, FilterSelect, Icon, ProviderTag, StatusBadge, Table,
@@ -143,7 +143,7 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
   const [appId, setAppId] = React.useState(eligibleApps[0]?.id ?? '');
   const [provider, setProvider] = React.useState<'lemonsqueezy' | 'xendit'>('lemonsqueezy');
   const [name, setName] = React.useState('');
-  const [country, setCountry] = React.useState('');
+  const [region, setRegion] = React.useState<PlanRegion>('international');
   const [description, setDescription] = React.useState('');
   // Lemon Squeezy:
   const [variantId, setVariantId] = React.useState('');
@@ -208,7 +208,7 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
             provider: 'lemonsqueezy',
             providerPlanId: variantId.trim(),
             description: description.trim() || undefined,
-            country: country.trim() ? country.trim().toUpperCase() : undefined,
+            region,
           }
         : {
             appId,
@@ -221,7 +221,7 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
             provider: 'xendit',
             // providerPlanId is synthesized server-side for Xendit
             description: description.trim() || undefined,
-            country: country.trim() ? country.trim().toUpperCase() : undefined,
+            region,
           };
       await api.plans.create(body);
       onCreated();
@@ -292,12 +292,15 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
         </Field>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 12 }}>
         <Field label="Title" hint="Operator-facing plan name">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Pro Monthly" style={inputStyle} />
         </Field>
-        <Field label="Country" hint="ISO-2 · blank = global">
-          <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} placeholder="PH" className="mono" style={inputStyle} />
+        <Field label="Region" hint="Local = Philippines">
+          <select value={region} onChange={(e) => setRegion(e.target.value as PlanRegion)} style={{ ...inputStyle, paddingRight: 24 }}>
+            <option value="international">International</option>
+            <option value="local">Local (PH)</option>
+          </select>
         </Field>
       </div>
       <Field label="Description" hint="Shown to operators next to the plan">
@@ -415,7 +418,7 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
   const isLs = plan.provider === 'lemonsqueezy';
   const [name, setName] = React.useState(plan.name);
   const [description, setDescription] = React.useState(plan.description ?? '');
-  const [country, setCountry] = React.useState(plan.country ?? '');
+  const [region, setRegion] = React.useState<PlanRegion>(plan.region);
   const [isActive, setIsActive] = React.useState(plan.isActive);
   // Xendit-only fields
   const [amount, setAmount] = React.useState((plan.amount / 100).toFixed(2));
@@ -437,7 +440,7 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
       const body: Parameters<typeof api.plans.update>[1] = {
         name: name.trim(),
         description: description.trim() ? description.trim() : null,
-        country: country.trim() ? country.trim().toUpperCase() : null,
+        region,
         isActive,
       };
       if (!isLs) {
@@ -468,12 +471,15 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
         <span className="mono">{plan.providerPlanId}</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 12 }}>
         <Field label="Title" hint="Operator-facing plan name">
           <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
         </Field>
-        <Field label="Country" hint="ISO-2 · blank = global">
-          <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} className="mono" style={inputStyle} />
+        <Field label="Region" hint="Local = Philippines">
+          <select value={region} onChange={(e) => setRegion(e.target.value as PlanRegion)} style={{ ...inputStyle, paddingRight: 24 }}>
+            <option value="international">International</option>
+            <option value="local">Local (PH)</option>
+          </select>
         </Field>
       </div>
 

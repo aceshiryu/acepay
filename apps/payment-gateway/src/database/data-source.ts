@@ -1,6 +1,11 @@
-// Side-effect import — runs dotenv.config() at import time, before TypeORM
-// reads env. Goes first so it runs before any other code in this module.
-import 'dotenv/config';
+// Load the gateway's .env explicitly. We can't use `import 'dotenv/config'`
+// here because that resolves .env relative to process.cwd() — which is the
+// repo root when running `npm run db:migrate`, where no .env exists.
+// Pinning to __dirname makes this work regardless of cwd.
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'path';
+loadEnv({ path: resolve(__dirname, '../../.env') });
+
 import { DataSource, DataSourceOptions } from 'typeorm';
 import * as Entities from './entities';
 
