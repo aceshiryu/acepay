@@ -1,16 +1,26 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsEmail, IsObject, IsOptional, IsString, IsUrl, IsUUID, MaxLength, ValidateNested,
+  IsEmail, IsObject, IsOptional, IsString, IsUUID, MaxLength, ValidateNested,
 } from 'class-validator';
+import { IsRedirectUrl } from '../../../common/validators/is-redirect-url';
 
 export class RedirectDto {
-  @ApiProperty({ example: 'https://savi.app/payment/success?tx=…' })
-  @IsUrl({ require_protocol: true, require_tld: false, protocols: ['http', 'https', 'saviapp', 'courthubapp', 'vehikolapp'] })
+  @ApiProperty({
+    example: 'https://savi.app/payment/success?tx=…',
+    description: 'Where to send the customer after a successful checkout. ' +
+      'Accepts https URLs or app deep links (e.g. savi://paywall/success).',
+  })
+  @IsRedirectUrl()
   success!: string;
 
-  @ApiProperty({ example: 'https://savi.app/payment/failed?tx=…' })
-  @IsUrl({ require_protocol: true, require_tld: false, protocols: ['http', 'https', 'saviapp', 'courthubapp', 'vehikolapp'] })
+  @ApiProperty({
+    example: 'https://savi.app/payment/failed?tx=…',
+    description: 'Where to send the customer if checkout is canceled or fails. ' +
+      'Accepts https URLs or app deep links (e.g. savi://paywall/cancel). ' +
+      'Honored by Xendit; ignored by Lemon Squeezy (LS has no failure-redirect concept).',
+  })
+  @IsRedirectUrl()
   failed!: string;
 }
 
