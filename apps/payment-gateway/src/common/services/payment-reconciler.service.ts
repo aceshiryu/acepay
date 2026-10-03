@@ -47,7 +47,10 @@ export class PaymentReconcilerService {
     const provider = this.providers.resolve(tx.provider);
     let fetched;
     try {
-      fetched = await provider.getPayment(tx.providerTxId);
+      // Marketplace payments live on the merchant's Xendit sub-account.
+      fetched = tx.providerAccountId
+        ? await provider.getPayment(tx.providerTxId, { forUserId: tx.providerAccountId })
+        : await provider.getPayment(tx.providerTxId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Reconcile fetch failed for ${tx.id}: ${msg}`);

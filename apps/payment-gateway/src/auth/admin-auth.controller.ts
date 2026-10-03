@@ -2,6 +2,7 @@ import {
   Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { LoginRateLimitGuard } from '../common/throttling/login-rate-limit.guard';
 import { User } from '../database/entities';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminGuard } from './admin.guard';
@@ -32,6 +33,7 @@ export class AdminAuthController {
   constructor(private readonly auth: AdminAuthService) {}
 
   @Post('login')
+  @UseGuards(LoginRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Log in with email + password, receive a Bearer token' })
   async login(@Body() dto: LoginDto) {

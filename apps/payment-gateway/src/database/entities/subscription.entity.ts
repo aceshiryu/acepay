@@ -1,6 +1,6 @@
 import {
   Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne,
-  OneToMany, PrimaryGeneratedColumn, UpdateDateColumn,
+  OneToMany, PrimaryGeneratedColumn, Unique, UpdateDateColumn,
 } from 'typeorm';
 import { Provider, SubscriptionStatus } from '../../common/enums';
 import { App } from './app.entity';
@@ -9,6 +9,9 @@ import { Plan } from './plan.entity';
 import { Transaction } from './transaction.entity';
 
 @Entity('subscriptions')
+// Same shape as uq_tx_app_idem on transactions: a retry of the same create call
+// from the same app must not produce a second subscription and a second checkout.
+@Unique('uq_sub_app_idem', ['appId', 'idempotencyKey'])
 export class Subscription {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -20,6 +23,10 @@ export class Subscription {
   @ManyToOne(() => App, (a) => a.subscriptions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'app_id' })
   app?: App;
+
+  /** Caller-supplied retry key. Null for callers that do not send one. */
+  @Column({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
+  idempotencyKey?: string | null;
 
   @Index()
   @Column({ name: 'customer_id', type: 'uuid' })

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { App, Transaction, TransactionLog, WebhookEvent } from '../../database/entities';
 import { PaymentProvidersModule } from '../../payment-providers/payment-providers.module';
 import { QueueModule } from '../queue/queue.module';
+import { PayoutRunQueueService } from '../queue/payout-run-queue.service';
 import { SubscriptionBillingQueueService } from '../queue/subscription-billing-queue.service';
 import { WebhookDeliveryQueueService } from '../queue/webhook-delivery-queue.service';
 import { MetadataValidatorService } from './metadata-validator.service';
@@ -22,6 +23,7 @@ import { WebhookDeliveryService } from './webhook-delivery.service';
     WebhookDeliveryService,
     WebhookDeliveryQueueService,
     SubscriptionBillingQueueService,
+    PayoutRunQueueService,
     PaymentReconcilerService,
   ],
   exports: [
@@ -30,6 +32,7 @@ import { WebhookDeliveryService } from './webhook-delivery.service';
     WebhookDeliveryService,
     WebhookDeliveryQueueService,
     SubscriptionBillingQueueService,
+    PayoutRunQueueService,
     PaymentReconcilerService,
   ],
 })

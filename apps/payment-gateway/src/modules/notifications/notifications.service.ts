@@ -63,14 +63,19 @@ export class NotificationsService {
         take: SOURCE_WINDOW,
         relations: { app: true },
       }),
+      // Match the actions the gateway actually emits. AcePay is subscription
+      // only, so a failed charge is logged as subscription.payment_failed and a
+      // refund as payment.refund_requested; querying just the one-time actions
+      // (which no live path writes since Slice 3.6) left this feed permanently
+      // empty while real failures and refunds were sitting in the log.
       this.logs.find({
-        where: { action: LogAction.PaymentFailed },
+        where: { action: In([LogAction.PaymentFailed, LogAction.SubscriptionPaymentFailed]) },
         order: { createdAt: 'DESC' },
         take: SOURCE_WINDOW,
         relations: { app: true, transaction: true },
       }),
       this.logs.find({
-        where: { action: LogAction.PaymentRefunded },
+        where: { action: In([LogAction.PaymentRefunded, LogAction.PaymentRefundRequested]) },
         order: { createdAt: 'DESC' },
         take: SOURCE_WINDOW,
         relations: { app: true, transaction: true },

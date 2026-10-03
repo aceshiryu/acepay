@@ -2,9 +2,9 @@ import {
   BadRequestException, Injectable, Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import {
-  LogAction, LogActor, PlanInterval, Provider, TransactionStatus,
+  LogAction, LogActor, PlanInterval, Provider, SubscriptionStatus, TransactionStatus,
   TransactionType, WebhookDeliveryStatus, XenditPaymentMethodStatus,
 } from '../../common/enums';
 import { SubscriptionBillingQueueService } from '../../common/queue/subscription-billing-queue.service';
@@ -14,7 +14,18 @@ import {
   App, Customer, Subscription, Transaction, WebhookEvent,
 } from '../../database/entities';
 import { ProviderRegistry } from '../../payment-providers/provider.registry';
+import { XenditAdapter } from '../../payment-providers/xendit.adapter';
 import { NormalizedEvent } from '../../payment-providers/provider.types';
+
+/** AcePay ids are uuids. A provider payload can carry anything in its custom
+ *  data, so an id that is not a uuid must simply not match — querying a uuid
+ *  column with a non-uuid string makes Postgres raise, which would turn a
+ *  malformed webhook into a 500 on a public, unauthenticated endpoint. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function asUuid(v: string | null | undefined): string | null {
+  return typeof v === 'string' && UUID_RE.test(v) ? v : null;
+}
 
 @Injectable()
 export class WebhooksService {
@@ -114,18 +125,58 @@ export class WebhooksService {
       ? (await this.apps.findOne({ where: { id: sub.appId } })) ?? null
       : null;
 
+    // The transaction this event produced, whichever branch creates it, so the
+    // stored webhook event can be linked back to it.
+    let recordedTx: Transaction | null = null;
+
     if (sub) {
       let dirty = false;
 
       // First-time confirmation: swap the placeholder providerSubscriptionId
       // (which is the checkout id) to the real LS subscription id.
       if (event.providerSubscriptionId && event.providerSubscriptionId !== sub.providerSubscriptionId) {
-        sub.providerSubscriptionId = event.providerSubscriptionId;
-        dirty = true;
+        // provider_subscription_id is UNIQUE. If another row already holds this
+        // id the swap raises, and because this is a public webhook endpoint the
+        // provider then retries the 500 forever. Skip the swap and say so: the
+        // identity fix is best-effort, and a collision means the data is already
+        // inconsistent, which a retry loop will not resolve.
+        const clash = await this.subscriptions.findOne({
+          where: { providerSubscriptionId: event.providerSubscriptionId },
+        });
+        if (clash && clash.id !== sub.id) {
+          this.logger.warn(
+            `Cannot point subscription ${sub.id} at provider subscription `
+            + `${event.providerSubscriptionId}: already held by ${clash.id}. Leaving it unchanged.`,
+          );
+        } else {
+          sub.providerSubscriptionId = event.providerSubscriptionId;
+          dirty = true;
+        }
       }
 
       if (event.subscriptionStatus && event.subscriptionStatus !== sub.status) {
         sub.status = event.subscriptionStatus;
+        dirty = true;
+      }
+
+      // Card-only recurring: the reusable card finished linking, so arm recurring
+      // and charge cycle 1 ourselves. This replaces the old invoice-first flow,
+      // which produced a one-off charge and nothing reusable.
+      if (event.event === 'subscription.payment_method_linked') {
+        recordedTx = await this.handleXenditCardLinked(sub, event);
+        dirty = true;
+      }
+
+      if (event.event === 'subscription.payment_method_failed') {
+        const meta = (sub.metadata ?? {}) as Record<string, unknown>;
+        delete meta.awaitingFirstPayment;
+        delete meta.checkoutUrl;
+        sub.metadata = {
+          ...meta,
+          recurringUnavailable: true,
+          recurringUnavailableReason: 'card_link_failed',
+        };
+        sub.status = SubscriptionStatus.PastDue;
         dirty = true;
       }
 
@@ -149,7 +200,31 @@ export class WebhooksService {
         // Save it on the Customer so the billing processor can reuse it,
         // then schedule cycle #2 at currentPeriodEnd.
         if (event.provider === Provider.Xendit && sub.provider === Provider.Xendit) {
-          await this.handleXenditFirstPayment(sub, event);
+          recordedTx = await this.handleXenditFirstPayment(sub, event);
+        }
+      }
+
+      // Lemon Squeezy refunds require an ORDER id, and the charge event
+      // (subscription_payment_success) carries only a subscription-invoice id.
+      // order_created is the only event with the order id, so capture it:
+      // backfill the charge row if it already exists, otherwise stash it for the
+      // charge event to pick up. Without this an LS subscription payment can
+      // never be refunded, because issueOrderRefund has nothing to act on.
+      if (event.event === 'payment.succeeded' && event.providerTxId) {
+        const unlinked = await this.transactions.findOne({
+          where: {
+            subscriptionId: sub.id,
+            type: TransactionType.SubscriptionPayment,
+            providerTxId: IsNull(),
+          },
+          order: { createdAt: 'DESC' },
+        });
+        if (unlinked) {
+          unlinked.providerTxId = event.providerTxId;
+          await this.transactions.save(unlinked);
+        } else {
+          sub.metadata = { ...(sub.metadata ?? {}), pendingOrderId: event.providerTxId };
+          dirty = true;
         }
       }
 
@@ -166,7 +241,14 @@ export class WebhooksService {
       );
     }
 
-    // For subscription_payment_* events, record a subscription_payment Transaction.
+    // Record a subscription_payment Transaction.
+    //
+    // Only the subscription.payment_* events qualify. Lemon Squeezy emits FOUR
+    // events for one first charge — order_created, subscription_created,
+    // subscription_updated and subscription_payment_success — and the last one
+    // is what records the charge. Treating order_created as a charge too (it
+    // normalizes to payment.succeeded and carries the subscription in
+    // custom_data) records the same payment twice.
     if (sub && app && (event.event === 'subscription.payment_succeeded' || event.event === 'subscription.payment_failed')) {
       const txStatus = event.status ?? (event.event === 'subscription.payment_succeeded'
         ? TransactionStatus.Succeeded : TransactionStatus.Failed);
@@ -177,6 +259,13 @@ export class WebhooksService {
         customerId: sub.customerId,
         subscriptionId: sub.id,
         provider: sub.provider,
+        // Needed for refunds later: for Lemon Squeezy this is the numeric order
+        // id, which is the only id issueOrderRefund accepts.
+        // Fall back to the order id captured from order_created, since the
+        // charge event itself carries only a subscription-invoice id.
+        providerTxId: event.providerTxId
+          ?? (sub.metadata as Record<string, unknown> | undefined)?.pendingOrderId as string
+          ?? null,
         type: TransactionType.SubscriptionPayment,
         status: txStatus,
         amount,
@@ -185,10 +274,34 @@ export class WebhooksService {
         webhookReceivedAt: new Date(),
         providerCompletedAt: event.occurredAt ?? new Date(),
       });
-      await this.transactions.save(ptx);
+      recordedTx = await this.transactions.save(ptx);
+      if ((sub.metadata as Record<string, unknown> | undefined)?.pendingOrderId) {
+        const meta = { ...(sub.metadata as Record<string, unknown>) };
+        delete meta.pendingOrderId;
+        sub.metadata = meta;
+        await this.subscriptions.save(sub);
+      }
+
+      // Without this the transaction has no movement log at all: the admin's
+      // activity feed and every subscription transaction's timeline stay empty,
+      // because handlePaymentEvent was the only path that ever logged.
+      await this.txLogger.log({
+        transaction: recordedTx,
+        action: txStatus === TransactionStatus.Succeeded
+          ? LogAction.SubscriptionPaymentSucceeded
+          : LogAction.SubscriptionPaymentFailed,
+        actor: LogActor.Provider,
+        statusFrom: txStatus, statusTo: txStatus,
+        providerEventId: event.providerEventId,
+        details: { event: event.event, subscriptionId: sub.id },
+      });
     }
 
-    return this.persistAndDeliver(provider, event, sub?.appId ?? null, null, null, app);
+    // Link the event to the transaction it produced, so the transaction's
+    // "related webhook events" panel and the delivery payload both resolve.
+    return this.persistAndDeliver(
+      provider, event, sub?.appId ?? null, recordedTx?.id ?? null, recordedTx, app,
+    );
   }
 
   // ─── Shared persistence + delivery ───────────────────────────────────
@@ -231,8 +344,9 @@ export class WebhooksService {
   }
 
   private async resolveTransaction(event: NormalizedEvent): Promise<Transaction | null> {
-    if (event.acepayTxId) {
-      const tx = await this.transactions.findOne({ where: { id: event.acepayTxId } });
+    const acepayTxId = asUuid(event.acepayTxId);
+    if (acepayTxId) {
+      const tx = await this.transactions.findOne({ where: { id: acepayTxId } });
       if (tx) return tx;
     }
     if (event.providerTxId) {
@@ -246,19 +360,128 @@ export class WebhooksService {
   /** Xendit-specific: invoice.paid for a subscription's first cycle carries
    *  the saved payment_method_id. Persist it on the Customer, backfill a
    *  Transaction row for cycle 1, and schedule cycle 2 at plan.interval. */
-  private async handleXenditFirstPayment(sub: Subscription, event: NormalizedEvent): Promise<void> {
-    if (!sub.customerId) return;
+  /**
+   * The customer finished linking a reusable card. Save it, charge cycle 1
+   * through the PaymentRequest API, record the transaction and schedule cycle 2.
+   * Any failure here leaves the subscription visibly unarmed rather than
+   * silently waiting for a charge that can never happen.
+   */
+  private async handleXenditCardLinked(sub: Subscription, event: NormalizedEvent): Promise<Transaction | null> {
     const raw = event.raw as Record<string, unknown>;
-    const pmId = (raw.payment_method_id ?? raw.payment_id) as string | undefined;
-    if (!pmId) {
-      this.logger.warn(`Xendit first-payment for sub ${sub.id} has no payment_method_id — recurring will not work`);
-      return;
-    }
+    const pmId = String(raw.id ?? '');
+    if (!sub.customerId || !pmId) return null;
+
     const customer = await this.customers.findOne({ where: { id: sub.customerId } });
     if (customer) {
-      customer.xenditPaymentMethodId = String(pmId);
+      customer.xenditPaymentMethodId = pmId;
       customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
       await this.customers.save(customer);
+    }
+
+    const meta = (sub.metadata ?? {}) as Record<string, unknown>;
+    delete meta.awaitingFirstPayment;
+    delete meta.checkoutUrl;
+    delete meta.recurringUnavailable;
+    delete meta.recurringUnavailableReason;
+    sub.metadata = meta;
+
+    if (!sub.plan) return null;
+
+    // Charge cycle 1 now — with a reusable card there is no invoice to wait on.
+    let charge;
+    try {
+      // chargeWithPaymentMethod is Xendit-specific, not part of the shared
+      // PaymentProvider contract, so resolve the concrete adapter.
+      const xendit = this.providers.resolve(Provider.Xendit) as unknown as XenditAdapter;
+      charge = await xendit.chargeWithPaymentMethod({
+          paymentMethodId: pmId,
+          xenditCustomerId: String(raw.customer_id ?? customer?.xenditCustomerId ?? ''),
+          amount: sub.plan.amount,
+          currency: sub.plan.currency,
+          referenceId: `sub_${sub.id}_cycle_1`,
+          metadata: { acepay_subscription: sub.id, cycle: 1 },
+        });
+    } catch (err) {
+      this.logger.error(
+        `Cycle 1 charge failed for sub ${sub.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      sub.status = SubscriptionStatus.PastDue;
+      return null;
+    }
+
+    const succeeded = charge.status === 'SUCCEEDED';
+    const cycle1 = await this.transactions.save(this.transactions.create({
+      appId: sub.appId,
+      customerId: sub.customerId,
+      subscriptionId: sub.id,
+      provider: Provider.Xendit,
+      providerTxId: charge.paymentRequestId,
+      type: TransactionType.SubscriptionPayment,
+      status: succeeded ? TransactionStatus.Succeeded : TransactionStatus.Failed,
+      amount: sub.plan.amount,
+      currency: sub.plan.currency,
+      description: `${sub.plan.name} — cycle 1`,
+      providerCompletedAt: event.occurredAt ?? new Date(),
+      webhookReceivedAt: new Date(),
+    }));
+
+    await this.txLogger.log({
+      transaction: cycle1,
+      action: succeeded ? LogAction.SubscriptionPaymentSucceeded : LogAction.SubscriptionPaymentFailed,
+      actor: LogActor.Provider,
+      statusFrom: cycle1.status, statusTo: cycle1.status,
+      providerEventId: event.providerEventId,
+      details: { event: event.event, subscriptionId: sub.id, cycle: 1 },
+    });
+
+    if (!succeeded) {
+      sub.status = SubscriptionStatus.PastDue;
+      return cycle1;
+    }
+
+    const nextCycleAt = addPlanInterval(new Date(), sub.plan.interval, sub.plan.intervalCount);
+    sub.currentPeriodStart ??= new Date();
+    sub.currentPeriodEnd = nextCycleAt;
+    await this.billingQueue.enqueue(
+      { subscriptionId: sub.id, cycleNumber: 2 },
+      Math.max(0, nextCycleAt.getTime() - Date.now()),
+    );
+    this.logger.log(`Xendit sub ${sub.id} armed; cycle 2 at ${nextCycleAt.toISOString()}`);
+    return cycle1;
+  }
+
+  private async handleXenditFirstPayment(sub: Subscription, event: NormalizedEvent): Promise<Transaction | null> {
+    if (!sub.customerId) return null;
+    const raw = event.raw as Record<string, unknown>;
+    const pmId = (raw.payment_method_id ?? raw.payment_id) as string | undefined;
+    let cycle1: Transaction | null = null;
+
+    // A missing payment method only blocks RECURRING. The customer has still
+    // paid cycle 1, so the transaction, the billing period and the next cycle
+    // must be recorded regardless — bailing out here meant a real paid
+    // subscription had no billing record at all. Real Xendit invoice callbacks
+    // do not carry payment_method_id, so this is the normal path, not an edge.
+    if (pmId) {
+      const customer = await this.customers.findOne({ where: { id: sub.customerId } });
+      if (customer) {
+        customer.xenditPaymentMethodId = String(pmId);
+        customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
+        await this.customers.save(customer);
+      }
+    } else {
+      this.logger.warn(
+        `Xendit first-payment for sub ${sub.id} carried no payment_method_id — cycle 1 is ` +
+        `recorded, but no reusable payment method was saved so cycle 2 cannot be charged.`,
+      );
+      // Make this visible NOW rather than as a surprise failed charge a billing
+      // period later. The operator can see on the subscription that recurring is
+      // not armed, and act before the customer is affected.
+      sub.metadata = {
+        ...(sub.metadata ?? {}),
+        recurringUnavailable: true,
+        recurringUnavailableReason: 'xendit_invoice_callback_carried_no_payment_method_id',
+      };
+      await this.subscriptions.save(sub);
     }
 
     // Record cycle 1 as a subscription_payment Transaction so billing history
@@ -279,7 +502,15 @@ export class WebhooksService {
         providerCompletedAt: event.occurredAt ?? new Date(),
         webhookReceivedAt: new Date(),
       });
-      await this.transactions.save(cycle1Tx);
+      cycle1 = await this.transactions.save(cycle1Tx);
+      await this.txLogger.log({
+        transaction: cycle1,
+        action: LogAction.SubscriptionPaymentSucceeded,
+        actor: LogActor.Provider,
+        statusFrom: TransactionStatus.Succeeded, statusTo: TransactionStatus.Succeeded,
+        providerEventId: event.providerEventId,
+        details: { event: event.event, subscriptionId: sub.id, cycle: 1 },
+      });
     }
 
     // Schedule cycle 2 at plan.interval from now.
@@ -294,12 +525,14 @@ export class WebhooksService {
       );
       this.logger.log(`Scheduled Xendit sub ${sub.id} cycle 2 at ${nextCycleAt.toISOString()}`);
     }
+    return cycle1;
   }
 
   private async resolveSubscription(event: NormalizedEvent): Promise<Subscription | null> {
-    if (event.acepaySubscriptionId) {
+    const acepaySubscriptionId = asUuid(event.acepaySubscriptionId);
+    if (acepaySubscriptionId) {
       const sub = await this.subscriptions.findOne({
-        where: { id: event.acepaySubscriptionId },
+        where: { id: acepaySubscriptionId },
         relations: { plan: true },
       });
       if (sub) return sub;
@@ -332,6 +565,16 @@ function buildNormalizedPayload(event: NormalizedEvent, tx: Transaction | null):
     amount: tx?.amount ?? null,
     currency: tx?.currency ?? null,
     metadata: tx?.metadata ?? {},
+    // Marketplace payments (Slice 6) carry the split so the app can show the
+    // merchant their share. Absent for subscription / non-marketplace payments.
+    ...(tx?.merchantId ? {
+      marketplace: {
+        merchant_id: tx.merchantId,
+        fee_percent: tx.platformFeePercent ?? null,
+        platform_fee: tx.platformFeeAmount ?? null,
+        merchant_amount: tx.merchantAmount ?? null,
+      },
+    } : {}),
     timestamps: {
       created_at: tx?.createdAt ?? null,
       provider_completed_at: tx?.providerCompletedAt ?? null,

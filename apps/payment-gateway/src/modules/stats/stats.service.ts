@@ -7,6 +7,7 @@ import {
 import {
   App, Subscription, Transaction, WebhookEvent,
 } from '../../database/entities';
+import { netRevenueByCurrency, RevenueRow } from '../../common/stats/revenue';
 
 export interface CurrencyAmount { currency: string; amount: number }
 export interface ProviderHealth { name: Provider; status: 'ok' | 'warn' | 'bad'; lastWebhookAt: Date | null }
@@ -38,7 +39,9 @@ export class StatsService {
       activeApps,
     ] = await Promise.all([
       this.countTransactions(startOfDay, now),
-      this.sumByCurrency({ from: startOfDay, to: now, statuses: [TransactionStatus.Succeeded, TransactionStatus.Refunded] }),
+      // NET revenue (succeeded minus refunds), grouped per currency — refunds
+      // must reduce revenue, never inflate it, and currencies never mix.
+      this.netRevenue({ from: startOfDay, to: now }),
       this.computeSuccessRate(startOfDay, now),
       this.subscriptions.count({ where: { status: SubscriptionStatus.Active } }),
       this.sumByCurrency({ from: startOfWeek, to: now, statuses: [TransactionStatus.Succeeded] }),
@@ -87,7 +90,7 @@ export class StatsService {
       txCount, revenue, activeSubs, successRate,
     ] = await Promise.all([
       this.transactions.count({ where: { appId } }),
-      this.sumByCurrency({ statuses: [TransactionStatus.Succeeded], appId }),
+      this.netRevenue({ appId }),
       this.subscriptions.count({ where: { appId, status: SubscriptionStatus.Active } }),
       this.computeSuccessRate(undefined, undefined, appId),
     ]);
@@ -117,6 +120,21 @@ export class StatsService {
     const total = succeeded + failed;
     if (total === 0) return null;
     return Math.round((succeeded / total) * 1000) / 10;
+  }
+
+  /** Net revenue per currency: succeeded minus refunded, grouped by currency.
+   *  Selects status alongside currency so the pure helper can net refunds out. */
+  private async netRevenue(opts: { from?: Date; to?: Date; appId?: string }): Promise<CurrencyAmount[]> {
+    const qb = this.transactions.createQueryBuilder('tx')
+      .select('tx.currency', 'currency')
+      .addSelect('tx.status', 'status')
+      .addSelect('SUM(tx.amount)', 'amount')
+      .where('tx.status IN (:...st)', { st: [TransactionStatus.Succeeded, TransactionStatus.Refunded] })
+      .groupBy('tx.currency').addGroupBy('tx.status');
+    if (opts.from && opts.to) qb.andWhere('tx.created_at BETWEEN :from AND :to', { from: opts.from, to: opts.to });
+    if (opts.appId) qb.andWhere('tx.app_id = :appId', { appId: opts.appId });
+    const rows = await qb.getRawMany<RevenueRow>();
+    return netRevenueByCurrency(rows);
   }
 
   private async sumByCurrency(opts: {

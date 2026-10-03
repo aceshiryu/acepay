@@ -5,6 +5,7 @@ import {
 import {
   Provider, Source, TransactionStatus, TransactionType,
 } from '../../common/enums';
+import { numericTransformer } from '../transformers';
 import { App } from './app.entity';
 import { Customer } from './customer.entity';
 import { Subscription } from './subscription.entity';
@@ -72,6 +73,39 @@ export class Transaction {
 
   @Column({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
   idempotencyKey?: string | null;
+
+  // ─── Marketplace split (Slice 6) — null on non-marketplace payments ───────
+
+  /** Merchant the payment was collected for; money lands in their sub-account. */
+  @Index()
+  @Column({ name: 'merchant_id', type: 'uuid', nullable: true })
+  merchantId?: string | null;
+
+  /** Xendit sub-account the payment was created on (`for-user-id`). Needed to
+   *  read or refund the payment later — it isn't visible from the master. */
+  @Column({ name: 'provider_account_id', type: 'varchar', length: 64, nullable: true })
+  providerAccountId?: string | null;
+
+  @Column({
+    name: 'platform_fee_percent', type: 'numeric', precision: 5, scale: 2, nullable: true,
+    transformer: numericTransformer,
+  })
+  platformFeePercent?: number | null;
+
+  /** Platform's cut, minor units. Expected at creation; corrected by the split webhook. */
+  @Column({ name: 'platform_fee_amount', type: 'int', nullable: true })
+  platformFeeAmount?: number | null;
+
+  /** amount − platformFeeAmount, before Xendit's own fees. Minor units. */
+  @Column({ name: 'merchant_amount', type: 'int', nullable: true })
+  merchantAmount?: number | null;
+
+  @Column({ name: 'split_rule_id', type: 'varchar', length: 100, nullable: true })
+  splitRuleId?: string | null;
+
+  /** pending → completed | failed, from Xendit's split.payment webhook. */
+  @Column({ name: 'split_status', type: 'varchar', length: 16, nullable: true })
+  splitStatus?: string | null;
 
   @Column({ type: 'enum', enum: Source, nullable: true })
   source?: Source | null;

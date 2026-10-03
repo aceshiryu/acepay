@@ -6,6 +6,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { App } from '../../database/entities';
 import { AppsService } from './apps.service';
 import { CreateAppDto } from './dto/create-app.dto';
+import { RegenerateKeyDto } from './dto/regenerate-key.dto';
 import { TestSubscriptionDto } from './dto/test-subscription.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 
@@ -81,13 +82,24 @@ export class AppsController {
   }
 
   @Post(':id/regenerate-key')
-  @ApiOperation({ summary: 'Rotate the API key. Previous key is rejected immediately.' })
-  async regenerateKey(@Param('id', ParseUUIDPipe) id: string) {
-    const result = await this.apps.regenerateApiKey(id);
+  @ApiOperation({
+    summary: 'Rotate the API key. The previous key is rejected immediately unless '
+      + 'graceHours is given, which keeps it valid for that long so a running app '
+      + 'does not break mid-rotation. Use the default (immediate) when rotating '
+      + 'because a key may have leaked.',
+  })
+  async regenerateKey(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RegenerateKeyDto = {},
+  ) {
+    const result = await this.apps.regenerateApiKey(id, dto.graceHours ?? 0);
     return {
       app: toView(result.app),
       apiKey: result.apiKey,
-      warning: 'The previous API key is now invalid. Store this new key.',
+      previousKeyValidUntil: result.previousKeyValidUntil,
+      warning: result.previousKeyValidUntil
+        ? `Store this new key. The previous key stays valid until ${result.previousKeyValidUntil.toISOString()}.`
+        : 'The previous API key is now invalid. Store this new key.',
     };
   }
 

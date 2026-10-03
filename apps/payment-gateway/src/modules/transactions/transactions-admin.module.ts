@@ -3,8 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../../auth/auth.module';
 import { CommonServicesModule } from '../../common/services/common-services.module';
 import {
-  Transaction, TransactionLog, WebhookEvent,
+  App, Transaction, TransactionLog, WebhookEvent,
 } from '../../database/entities';
+import { PaymentsAppModule } from '../payments/payments-app.module';
 import { TransactionsAdminController } from './transactions-admin.controller';
 import { TransactionsAdminService } from './transactions-admin.service';
 
@@ -12,7 +13,8 @@ import { TransactionsAdminService } from './transactions-admin.service';
   imports: [
     AuthModule,
     CommonServicesModule,
-    TypeOrmModule.forFeature([Transaction, TransactionLog, WebhookEvent]),
+    PaymentsAppModule,
+    TypeOrmModule.forFeature([Transaction, TransactionLog, WebhookEvent, App]),
   ],
   controllers: [TransactionsAdminController],
   providers: [TransactionsAdminService],

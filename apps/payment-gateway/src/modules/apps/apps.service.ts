@@ -217,13 +217,43 @@ export class AppsService {
     return this.apps.save(app);
   }
 
-  async regenerateApiKey(id: string): Promise<{ app: App; apiKey: string }> {
+  /**
+   * Rotate the app's API key.
+   *
+   * `graceHours` resolves a contradiction the codebase carried: CLAUDE.md and
+   * api-key-match.ts describe a rotation grace window, while this endpoint
+   * documented immediate revocation — and nothing ever populated the
+   * api_key_previous_* columns, so the grace branch could never fire.
+   *
+   * Immediate revocation stays the default, because the urgent reason to rotate
+   * is a leaked key and a grace window is exactly wrong there. An operator doing
+   * a routine rotation can ask for a window, which keeps the outgoing key valid
+   * so a running app does not break mid-deploy.
+   */
+  async regenerateApiKey(
+    id: string,
+    graceHours = 0,
+  ): Promise<{ app: App; apiKey: string; previousKeyValidUntil: Date | null }> {
     const app = await this.findOneOrFail(id);
+
+    let previousKeyValidUntil: Date | null = null;
+    if (graceHours > 0) {
+      previousKeyValidUntil = new Date(Date.now() + graceHours * 3_600_000);
+      app.apiKeyPreviousPrefix = app.apiKeyPrefix;
+      app.apiKeyPreviousHash = app.apiKeyHash;
+      app.apiKeyPreviousExpiresAt = previousKeyValidUntil;
+    } else {
+      // Revoke outright: clear any window a previous rotation left behind.
+      app.apiKeyPreviousPrefix = null;
+      app.apiKeyPreviousHash = null;
+      app.apiKeyPreviousExpiresAt = null;
+    }
+
     const apiKey = generateApiKey(app.slug, 'live');
     app.apiKeyPrefix = apiKeyPrefix(apiKey);
     app.apiKeyHash = sha256(apiKey);
     const saved = await this.apps.save(app);
-    return { app: saved, apiKey };
+    return { app: saved, apiKey, previousKeyValidUntil };
   }
 
   async regenerateWebhookSecret(id: string): Promise<{ app: App; webhookSecret: string }> {

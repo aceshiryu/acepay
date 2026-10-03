@@ -4,6 +4,13 @@ import { Repository } from 'typeorm';
 import { App, Customer } from '../../database/entities';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 
+/** Postgres unique_violation. TypeORM wraps the driver error, so check both. */
+function isUniqueViolation(err: unknown): boolean {
+  const code = (err as { code?: string; driverError?: { code?: string } })?.code
+    ?? (err as { driverError?: { code?: string } })?.driverError?.code;
+  return code === '23505';
+}
+
 @Injectable()
 export class CustomersAppService {
   constructor(
@@ -31,7 +38,23 @@ export class CustomersAppService {
       name: dto.name ?? null,
       metadata: dto.metadata ?? {},
     });
-    return this.customers.save(created);
+    try {
+      return await this.customers.save(created);
+    } catch (err) {
+      // Two concurrent calls for the same customer both passed the lookup above
+      // and raced to insert. The unique constraint stopped the duplicate — read
+      // the winner back rather than surfacing a raw constraint violation, which
+      // is what a customer double-clicking subscribe used to get.
+      if (!isUniqueViolation(err)) throw err;
+      const winner = await this.customers.findOne({
+        where: [
+          { appId: app.id, externalId: dto.externalId },
+          { appId: app.id, email: dto.email.toLowerCase() },
+        ],
+      });
+      if (!winner) throw err;
+      return winner;
+    }
   }
 
   async findOne(app: App, id: string): Promise<Customer> {

@@ -4,12 +4,8 @@ import { Xendit } from 'xendit-node';
 import { Provider, TransactionStatus } from '../common/enums';
 import {
   CreatePaymentParams, CreatePaymentResult, CreateSubscriptionParams, CreateSubscriptionResult,
-  FetchedPayment, FetchedSubscription, NormalizedEvent, PaymentProvider, RefundResult,
+  FetchedPayment, FetchedSubscription, NormalizedEvent, PaymentProvider, ProviderCallOptions, RefundResult,
 } from './provider.types';
-
-const PAUSE_RESUME_NOT_SUPPORTED =
-  'Xendit subscriptions are AcePay-managed (we own the schedule). Cancel works; pause/resume ' +
-  'require additional work to interleave with the billing queue — coming in Slice 4c.';
 
 export interface XenditChargeResult {
   paymentRequestId: string;
@@ -32,6 +28,19 @@ interface XenditInvoiceWebhook {
   payment_channel?: string;
   paid_at?: string;
   created?: string;
+  metadata?: Record<string, string>;
+}
+
+interface XenditPaymentMethodWebhook {
+  id: string;
+  type?: string;
+  status?: string;            // 'ACTIVE' | 'REQUIRES_ACTION' | 'FAILED' | 'EXPIRED'
+  reusability?: string;
+  reference_id?: string;
+  customer_id?: string;
+  failure_code?: string | null;
+  created?: string;
+  updated?: string;
   metadata?: Record<string, string>;
 }
 
@@ -93,21 +102,27 @@ export class XenditAdapter implements PaymentProvider {
     };
   }
 
-  async getPayment(providerTxId: string): Promise<FetchedPayment> {
-    const invoice = await this.client().Invoice.getInvoiceById({ invoiceId: providerTxId });
+  async getPayment(providerTxId: string, opts: ProviderCallOptions = {}): Promise<FetchedPayment> {
+    // Marketplace invoices live on the merchant's sub-account and are only
+    // visible with its for-user-id.
+    const invoice = await this.client().Invoice.getInvoiceById({
+      invoiceId: providerTxId,
+      ...(opts.forUserId ? { forUserId: opts.forUserId } : {}),
+    });
     return mapInvoiceToFetched(invoice);
   }
 
-  async refund(providerTxId: string, amount?: number): Promise<RefundResult> {
-    // Refunds need a payment_id, not the invoice_id. Fetch the invoice to resolve it.
-    const invoice = await this.client().Invoice.getInvoiceById({ invoiceId: providerTxId });
-    const paymentId: string | undefined = invoice?.paymentId ?? invoice?.payment_id;
-    if (!paymentId) {
-      throw new Error(`Cannot refund Xendit invoice ${providerTxId} — no payment_id (likely unpaid)`);
-    }
+  async refund(providerTxId: string, amount?: number, opts: ProviderCallOptions = {}): Promise<RefundResult> {
+    // Refund straight against the invoice. The previous implementation fetched
+    // the invoice first to resolve a `payment_id` — a field Xendit's Invoice
+    // resource does not expose, even on a fully PAID invoice, so every refund
+    // failed with a misleading "likely unpaid". CreateRefund accepts invoiceId
+    // directly, so no Payments-API identifier is needed at all.
     const refund = await this.client().Refund.createRefund({
+      ...(opts.forUserId ? { forUserId: opts.forUserId } : {}),
       data: {
-        paymentRequestId: paymentId,
+        invoiceId: providerTxId,
+        // Xendit expects MAJOR units, as everywhere else in this adapter.
         amount: amount != null ? amount / 100 : undefined,
         reason: 'REQUESTED_BY_CUSTOMER',
       },
@@ -128,17 +143,27 @@ export class XenditAdapter implements PaymentProvider {
    * webhook handler attaches to the AcePay Customer. Subsequent renewals are
    * charged off that saved PM by the SubscriptionBillingProcessor in the worker.
    */
+  /**
+   * First cycle via an Invoice (hosted checkout: card, GCash, Maya, GrabPay,
+   * bank transfer, OTC).
+   *
+   * NOTE — recurring is NOT armed by this flow. A paid invoice yields a one-off
+   * credit_card_charge_id, not a reusable payment method, so cycle 2 has nothing
+   * to charge; the webhook handler flags the subscription recurringUnavailable.
+   * Creating a reusable CARD payment method instead is not an option server
+   * side: POST /v2/payment_methods rejects a CARD without card_information
+   * ("card.card_information is required"), which would put AcePay in PCI scope.
+   * E-wallet methods DO link without raw credentials — that is the viable path
+   * for recurring, and it is tracked as Slice 4c.
+   */
   async createSubscription(p: CreateSubscriptionParams): Promise<CreateSubscriptionResult> {
     this.client();
-    // Resolve / create the Xendit Customer so the invoice + future PM are linked.
     const xenditCustomerId = await this.getOrCreateXenditCustomer({
       acepayCustomerRef: `acepay_${p.appSlug}_${p.acepaySubscriptionId}`,
       email: p.customer.email,
       name: p.customer.name,
     });
 
-    // Xendit expects amount in MAJOR units. The plan.amount in callers is in
-    // smallest unit (centavos), so divide by 100 when calling.
     const planAmountMinor = Number((p.metadata as Record<string, unknown>)?.plan_amount ?? 0);
     if (!planAmountMinor) {
       throw new Error('Xendit createSubscription requires metadata.plan_amount (smallest unit)');
@@ -224,11 +249,36 @@ export class XenditAdapter implements PaymentProvider {
     };
   }
 
-  async pauseSubscription(_id: string): Promise<FetchedSubscription> {
-    throw new Error(PAUSE_RESUME_NOT_SUPPORTED);
+  /**
+   * Pause is AcePay-managed: there's no Xendit subscription resource to pause.
+   * The service flips the AcePay sub to `paused`; the billing worker skips (and
+   * re-defers) any cycle that fires while paused, so no charge happens. This
+   * method just reports the resulting status so the sub record updates uniformly.
+   */
+  async pauseSubscription(providerSubscriptionId: string): Promise<FetchedSubscription> {
+    return {
+      providerSubscriptionId,
+      status: 'paused' as unknown as FetchedSubscription['status'],
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAt: null,
+      canceledAt: null,
+      raw: { pausedBy: 'acepay' },
+    };
   }
-  async resumeSubscription(_id: string): Promise<FetchedSubscription> {
-    throw new Error(PAUSE_RESUME_NOT_SUPPORTED);
+
+  /** Resume the AcePay-managed schedule — the queued cycle that was deferred
+   *  while paused resumes charging once status flips back to active. */
+  async resumeSubscription(providerSubscriptionId: string): Promise<FetchedSubscription> {
+    return {
+      providerSubscriptionId,
+      status: 'active' as unknown as FetchedSubscription['status'],
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      cancelAt: null,
+      canceledAt: null,
+      raw: { resumedBy: 'acepay' },
+    };
   }
 
   // ─── PaymentMethod-driven recurring charge (called by worker) ─────────
@@ -314,14 +364,57 @@ export class XenditAdapter implements PaymentProvider {
     return JSON.parse(rawBody.toString('utf8')) as XenditInvoiceWebhook;
   }
 
+  /** A reusable card finished (or failed) linking. ACTIVE is the signal that
+   *  recurring is armed and cycle 1 can be charged. */
+  private normalizePaymentMethodEvent(pm: XenditPaymentMethodWebhook): NormalizedEvent {
+    const status = String(pm.status ?? '').toUpperCase();
+    const acepaySubscriptionId =
+      pm.metadata?.acepay_subscription ?? parseSubscriptionReferenceId(pm.reference_id);
+
+    let event = 'unknown';
+    switch (status) {
+      case 'ACTIVE':          event = 'subscription.payment_method_linked'; break;
+      case 'FAILED':
+      case 'EXPIRED':         event = 'subscription.payment_method_failed'; break;
+      case 'REQUIRES_ACTION':
+      case 'PENDING':         event = 'subscription.payment_method_pending'; break;
+      default:
+        this.logger.debug(`Unmapped Xendit payment_method status: ${status}`);
+    }
+
+    return {
+      event,
+      providerEventId: `xendit_pm_${pm.id}_${status.toLowerCase()}`,
+      providerTxId: null,
+      providerSubscriptionId: acepaySubscriptionId ? String(pm.id) : null,
+      acepayTxId: null,
+      acepaySubscriptionId,
+      status: null,
+      provider: Provider.Xendit,
+      raw: pm as unknown as Record<string, unknown>,
+      occurredAt: pm.updated ? new Date(pm.updated) : pm.created ? new Date(pm.created) : null,
+    };
+  }
+
   normalizeEvent(payload: unknown): NormalizedEvent {
+    // A payment_method callback is a different resource from an invoice: it has
+    // a type/reusability and a reference_id rather than an external_id. Card
+    // recurring hinges on it, so detect it before falling through to invoices.
+    const pm = payload as XenditPaymentMethodWebhook;
+    if (pm && typeof pm === 'object' && pm.reusability && pm.type) {
+      return this.normalizePaymentMethodEvent(pm);
+    }
+
     // Xendit Invoice webhooks deliver the invoice resource itself at the root.
     // status: 'PAID' | 'EXPIRED' | 'PENDING'
     const inv = payload as XenditInvoiceWebhook;
     const status = String(inv.status ?? '').toUpperCase();
     const metadata = inv.metadata ?? {};
 
-    const acepaySubscriptionId = metadata.acepay_subscription ?? null;
+    // Prefer the metadata we set, but fall back to the externalId we chose —
+    // real Xendit callbacks omit metadata entirely.
+    const fromExternalId = parseSubscriptionExternalId(inv.external_id);
+    const acepaySubscriptionId = metadata.acepay_subscription ?? fromExternalId?.acepaySubscriptionId ?? null;
     const isSubscriptionFirstPayment = !!acepaySubscriptionId;
 
     let event = 'unknown';
@@ -350,7 +443,9 @@ export class XenditAdapter implements PaymentProvider {
       providerEventId: `xendit_invoice_${inv.id}_${status.toLowerCase()}`,
       providerTxId: String(inv.id),
       providerSubscriptionId: isSubscriptionFirstPayment ? String(inv.id) : null,
-      acepayTxId: metadata.acepay_tx ?? inv.external_id ?? null,
+      // A subscription externalId is not a transaction id; using it as one sends
+      // a non-uuid into the transactions lookup and matches nothing.
+      acepayTxId: metadata.acepay_tx ?? (fromExternalId ? null : inv.external_id ?? null),
       acepaySubscriptionId,
       status: txStatus,
       provider: Provider.Xendit,
@@ -358,6 +453,38 @@ export class XenditAdapter implements PaymentProvider {
       occurredAt,
     };
   }
+}
+
+/**
+ * Invoices we create for a subscription's first cycle carry the AcePay
+ * subscription id in their externalId as `sub_<uuid>_cycle_<n>` (see
+ * createSubscription). Real Xendit invoice callbacks do NOT echo back the
+ * `metadata` we set at creation — only the fields Xendit owns — so metadata
+ * cannot be the only way we recognise a subscription payment. external_id is
+ * echoed, and we chose its format, so parse the id back out of it.
+ */
+const SUB_EXTERNAL_ID_RE =
+  /^sub_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_cycle_(\d+)$/i;
+
+/** The referenceId we put on a subscription's PaymentMethod. Xendit echoes
+ *  reference_id on payment_method callbacks, where metadata is not reliable. */
+export function subscriptionReferenceId(acepaySubscriptionId: string): string {
+  return `acepaysub_${acepaySubscriptionId}`;
+}
+
+const SUB_REFERENCE_ID_RE =
+  /^acepaysub_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+export function parseSubscriptionReferenceId(referenceId: string | undefined | null): string | null {
+  const m = SUB_REFERENCE_ID_RE.exec(String(referenceId ?? ''));
+  return m ? m[1] : null;
+}
+
+export function parseSubscriptionExternalId(externalId: string | undefined | null): {
+  acepaySubscriptionId: string; cycle: number;
+} | null {
+  const m = SUB_EXTERNAL_ID_RE.exec(String(externalId ?? ''));
+  return m ? { acepaySubscriptionId: m[1], cycle: Number(m[2]) } : null;
 }
 
 function stringifyMetadata(md: Record<string, unknown>): Record<string, string> {

@@ -9,11 +9,19 @@ import { BillingMode, SubscriptionStatus } from '../../common/enums';
 import {
   App, Customer, Subscription,
 } from '../../database/entities';
+import { MetadataValidatorService } from '../../common/services/metadata-validator.service';
 import { ProviderRegistry } from '../../payment-providers/provider.registry';
 import { CustomersAppService } from '../customers/customers-app.service';
 import { PlansService } from '../plans/plans.service';
 import { CancelSubscriptionDto, CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { ListSubscriptionsAppDto } from './dto/list-subscriptions-app.dto';
+
+/** Postgres unique_violation. TypeORM wraps the driver error, so check both. */
+function isUniqueViolation(err: unknown): boolean {
+  const code = (err as { code?: string; driverError?: { code?: string } })?.code
+    ?? (err as { driverError?: { code?: string } })?.driverError?.code;
+  return code === '23505';
+}
 
 export interface CreateSubscriptionResponse {
   subscription: Subscription;
@@ -28,6 +36,7 @@ export class SubscriptionsAppService {
     private readonly plans: PlansService,
     private readonly providers: ProviderRegistry,
     private readonly customersApp: CustomersAppService,
+    private readonly metadataValidator: MetadataValidatorService,
   ) {}
 
   async create(app: App, dto: CreateSubscriptionDto): Promise<CreateSubscriptionResponse> {
@@ -37,6 +46,30 @@ export class SubscriptionsAppService {
         message: `App "${app.name}" is one-time-payment only — use POST /v1/payments instead`,
       });
     }
+    // Replay a retried call instead of creating a second subscription. A client
+    // that times out cannot tell whether the request landed; without this it
+    // retries and the customer gets two subscriptions and two checkout URLs.
+    if (dto.idempotencyKey) {
+      const existing = await this.subscriptions.findOne({
+        where: { appId: app.id, idempotencyKey: dto.idempotencyKey },
+      });
+      if (existing) {
+        const meta = (existing.metadata ?? {}) as Record<string, unknown>;
+        return {
+          subscription: existing,
+          // The original checkout URL, so the retry sends the customer to the
+          // same place rather than a second, competing checkout.
+          checkoutUrl: String(meta.checkoutUrl ?? ''),
+        };
+      }
+    }
+
+    // Enforce the app's required-metadata contract before anything is created.
+    // app.requiredMetadata is operator-configured and documented as "missing keys
+    // are rejected"; it was only ever wired to POST /v1/payments, which was
+    // deleted in Slice 3.6, so it silently stopped being enforced anywhere.
+    const metadata = this.metadataValidator.validate(app, dto.metadata);
+
     const plan = await this.plans.findActiveForApp(dto.planId, app.id);
 
     // Resolve the customer one of two ways:
@@ -80,7 +113,7 @@ export class SubscriptionsAppService {
         providerPlanId: plan.providerPlanId,
         redirect: dto.redirect,
         metadata: {
-          ...(dto.metadata ?? {}),
+          ...metadata,
           // Xendit needs the plan amount/currency here since it doesn't have a
           // native Plan resource — the adapter creates a first-cycle Invoice
           // for this amount with should_save_payment_methods=true.
@@ -99,6 +132,7 @@ export class SubscriptionsAppService {
     const sub = this.subscriptions.create({
       id: subId,
       appId: app.id,
+      idempotencyKey: dto.idempotencyKey ?? null,
       customerId: customer.id,
       planId: plan.id,
       provider: plan.provider,
@@ -108,12 +142,27 @@ export class SubscriptionsAppService {
       providerSubscriptionId: createResult.providerCheckoutId,
       status: SubscriptionStatus.Active,
       metadata: {
-        ...(dto.metadata ?? {}),
+        ...metadata,
         awaitingFirstPayment: true,
         checkoutUrl: createResult.checkoutUrl,
       },
     });
-    const saved = await this.subscriptions.save(sub);
+    let saved: Subscription;
+    try {
+      saved = await this.subscriptions.save(sub);
+    } catch (err) {
+      // Two requests carrying the same key raced past the read above. The unique
+      // index stopped the duplicate — replay the winner rather than surfacing a
+      // raw constraint violation as a 500, which is what the caller saw before.
+      const replayed = dto.idempotencyKey && isUniqueViolation(err)
+        ? await this.subscriptions.findOne({
+          where: { appId: app.id, idempotencyKey: dto.idempotencyKey },
+        })
+        : null;
+      if (!replayed) throw err;
+      const meta = (replayed.metadata ?? {}) as Record<string, unknown>;
+      return { subscription: replayed, checkoutUrl: String(meta.checkoutUrl ?? '') };
+    }
     return { subscription: saved, checkoutUrl: createResult.checkoutUrl };
   }
 

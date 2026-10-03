@@ -75,6 +75,18 @@ export class CreateSubscriptionDto {
   redirect!: RedirectDto;
 
   @ApiPropertyOptional({
+    maxLength: 200,
+    description: 'Retry key. Re-sending the same key for this app returns the SAME subscription '
+      + 'and checkout URL instead of creating a second one. Use it on any call you might retry — '
+      + 'a timeout does not tell you whether the subscription was created.',
+    example: 'sub-attempt-9f3c1b',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  idempotencyKey?: string;
+
+  @ApiPropertyOptional({
     description: 'App-specific metadata stored on the subscription and echoed in webhooks.',
     example: { user_id: 'user_42', source: 'pricing-page' },
   })

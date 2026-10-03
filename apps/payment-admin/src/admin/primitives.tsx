@@ -15,6 +15,18 @@ export const STATUS_MAP: Record<string, { label: string; fg: string; bg: string;
   delivered: { label: 'Delivered', fg: 'var(--ok)',     bg: 'var(--ok-soft)',     dot: '#2F7D52' },
   exhausted: { label: 'Exhausted', fg: 'var(--bad)',    bg: 'var(--bad-soft)',    dot: '#B32D2E' },
   inactive:  { label: 'Inactive',  fg: 'var(--muted)',  bg: 'var(--neutral-soft)', dot: '#A8A294' },
+  // Marketplace merchants + payout runs / payouts
+  suspended:  { label: 'Suspended',  fg: 'var(--bad)',   bg: 'var(--bad-soft)',     dot: '#B32D2E' },
+  building:   { label: 'Building',   fg: 'var(--info)',  bg: 'var(--info-soft)',    dot: '#3D5BA9' },
+  build_failed: { label: 'Build failed', fg: 'var(--bad)', bg: 'var(--bad-soft)',   dot: '#B32D2E' },
+  draft:      { label: 'Draft',      fg: 'var(--ink-2)', bg: 'var(--neutral-soft)', dot: '#7A7568' },
+  queued:     { label: 'Queued',     fg: 'var(--info)',  bg: 'var(--info-soft)',    dot: '#3D5BA9' },
+  processing: { label: 'Processing', fg: 'var(--warn)',  bg: 'var(--warn-soft)',    dot: '#D89B3C' },
+  completed:  { label: 'Completed',  fg: 'var(--ok)',    bg: 'var(--ok-soft)',      dot: '#2F7D52' },
+  completed_with_failures: { label: 'Some failed', fg: 'var(--warn)', bg: 'var(--warn-soft)', dot: '#B32D2E' },
+  discarded:  { label: 'Discarded',  fg: 'var(--muted)', bg: 'var(--neutral-soft)', dot: '#A8A294' },
+  reversed:   { label: 'Reversed',   fg: 'var(--bad)',   bg: 'var(--bad-soft)',     dot: '#B32D2E' },
+  skipped:    { label: 'Skipped',    fg: 'var(--muted)', bg: 'var(--neutral-soft)', dot: '#A8A294' },
 };
 
 export function StatusBadge({ status, size = 'md' }: { status: string; size?: 'sm' | 'md' }) {

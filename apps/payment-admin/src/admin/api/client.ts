@@ -2,7 +2,10 @@ import {
   AdminUser, AppKeyRotated, AppRegistered, AppSummary, AppView, BillingMode,
   CustomerListRow, CustomersStats, Customer,
   DashboardStats, LoginResponse, LookedUpVariant,
+  MarketplaceChannel, MarketplaceSettingsRow, MarketplaceSummary,
+  MerchantBalance, MerchantDetail, MerchantListRow, MerchantStatus,
   Notification, NotificationSeverity, NotificationStats,
+  Payout, PayoutRun, PayoutRunDetail, PayoutRunStatus, PayoutStatus,
   Paged, Plan, PlanRegion, ProviderHealth,
   Subscription, SubscriptionStats,
   Transaction, TransactionLog, TransactionStats,
@@ -53,7 +56,7 @@ export function setStoredUser(user: AdminUser | null): void {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   // Accept any object so call sites with typed query interfaces don't need
   // to add an explicit index signature.
@@ -85,6 +88,17 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   if (!resp.ok) {
     const errBody = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    // The gateway's AllExceptionsFilter wraps errors as
+    // { error: { code, message, requestId } } — read that shape first.
+    const envelope = errBody.error && typeof errBody.error === 'object'
+      ? (errBody.error as { code?: unknown; message?: unknown })
+      : null;
+    if (envelope) {
+      const envCode = typeof envelope.code === 'string' ? envelope.code : `http_${resp.status}`;
+      const envMessage = typeof envelope.message === 'string' ? envelope.message : resp.statusText;
+      if (resp.status === 401 && onUnauthorized) onUnauthorized();
+      throw new ApiError(resp.status, envCode, envMessage, body);
+    }
     const code =
       typeof errBody.error === 'string' ? errBody.error
         : typeof (errBody.message as { error?: string } | undefined)?.error === 'string'
@@ -330,4 +344,80 @@ export interface LogsListQuery {
 }
 export const logs = {
   list: (q: LogsListQuery = {}) => request<Paged<TransactionLog>>('/admin/logs', { query: q }),
+};
+
+// ── Marketplace ──────────────────────────────────────────────────────────
+export const marketplace = {
+  settings: () => request<{ data: MarketplaceSettingsRow[] }>('/admin/marketplace/settings'),
+  updateSettings: (appId: string, body: { enabled: boolean; feePercent?: number | null; minPayout?: number }) =>
+    request<MarketplaceSettingsRow>(`/admin/apps/${appId}/marketplace`, { method: 'PUT', body }),
+  summary: () => request<MarketplaceSummary>('/admin/marketplace/summary'),
+  channels: (currency = 'PHP') =>
+    request<MarketplaceChannel[]>('/admin/marketplace/channels', { query: { currency } }),
+};
+
+// ── Merchants ────────────────────────────────────────────────────────────
+export interface MerchantListQuery {
+  page?: number; pageSize?: number;
+  appId?: string; status?: MerchantStatus; search?: string;
+}
+export interface UpdateMerchantBody {
+  status?: 'active' | 'paused';
+  feeOverridePercent?: number | null;
+  feeOverrideEndsAt?: string | null;
+  name?: string;
+  email?: string;
+  payoutChannelCode?: string;
+  payoutAccountNumber?: string;
+  payoutAccountHolderName?: string;
+}
+export const merchants = {
+  list: (q: MerchantListQuery = {}) => request<Paged<MerchantListRow>>('/admin/merchants', { query: q }),
+  one: (id: string) => request<MerchantDetail>(`/admin/merchants/${id}`),
+  update: (id: string, body: UpdateMerchantBody) =>
+    request<MerchantDetail>(`/admin/merchants/${id}`, { method: 'PATCH', body }),
+  balance: (id: string) => request<MerchantBalance>(`/admin/merchants/${id}/balance`),
+  payouts: (id: string, q: { status?: PayoutStatus; page?: number; pageSize?: number } = {}) =>
+    request<Paged<Payout>>(`/admin/merchants/${id}/payouts`, { query: q }),
+  sync: (id: string) => request<MerchantDetail>(`/admin/merchants/${id}/sync`, { method: 'POST' }),
+};
+
+// ── Payout runs ──────────────────────────────────────────────────────────
+export interface PayoutRunListQuery {
+  page?: number; pageSize?: number;
+  status?: PayoutRunStatus; appId?: string;
+}
+export const payoutRuns = {
+  create: (body: { appId?: string } = {}) =>
+    request<PayoutRun>('/admin/payout-runs', { method: 'POST', body }),
+  list: (q: PayoutRunListQuery = {}) => request<Paged<PayoutRun>>('/admin/payout-runs', { query: q }),
+  one: (id: string) => request<PayoutRunDetail>(`/admin/payout-runs/${id}`),
+  confirm: (id: string, body: { skipMerchantIds?: string[] } = {}) =>
+    request<PayoutRunDetail>(`/admin/payout-runs/${id}/confirm`, { method: 'POST', body }),
+  discard: (id: string) => request<PayoutRunDetail>(`/admin/payout-runs/${id}/discard`, { method: 'POST' }),
+  retryFailed: (id: string) =>
+    request<{ retried: number; notRetried: Array<{ payoutId: string; reason: string }>; run: PayoutRunDetail }>(
+      `/admin/payout-runs/${id}/retry-failed`, { method: 'POST' },
+    ),
+  /** Fetches the run's CSV (with the Bearer token) and saves it as a file. */
+  downloadCsv: async (id: string): Promise<void> => {
+    const token = getStoredToken();
+    const resp = await fetch(`${API_BASE_URL}/admin/payout-runs/${id}/export.csv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resp.ok) {
+      if (resp.status === 401 && onUnauthorized) onUnauthorized();
+      throw new ApiError(resp.status, `http_${resp.status}`, `Couldn't export the CSV (${resp.status})`);
+    }
+    const blob = new Blob([await resp.text()], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payout-run-${id}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+  syncPayout: (payoutId: string) => request<Payout>(`/admin/payouts/${payoutId}/sync`, { method: 'POST' }),
 };

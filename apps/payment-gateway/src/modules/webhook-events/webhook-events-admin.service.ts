@@ -84,7 +84,12 @@ export class WebhookEventsAdminService {
     evt.deliveryStatus = WebhookDeliveryStatus.Pending;
     evt.nextRetryAt = new Date();
     const saved = await this.events.save(evt);
-    await this.deliveryQueue.enqueue({ webhookEventId: saved.id, transactionId: saved.transactionId ?? null });
+    // Replace any existing queue job: without this the add is a no-op and the
+    // event sits in `pending` with nothing delivering it.
+    await this.deliveryQueue.enqueue(
+      { webhookEventId: saved.id, transactionId: saved.transactionId ?? null },
+      { replaceExisting: true },
+    );
     return saved;
   }
 

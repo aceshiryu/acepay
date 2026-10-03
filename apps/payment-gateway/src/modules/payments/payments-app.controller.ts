@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../auth/api-key.guard';
+import { AppRateLimitGuard } from '../../common/throttling/app-rate-limit.guard';
 import { CurrentApp } from '../../auth/current-app.decorator';
 import { App } from '../../database/entities';
 import { ListPaymentsAppDto, RefundPaymentDto } from './dto/list-payments-app.dto';
@@ -16,7 +17,7 @@ import { PaymentsAppService } from './payments-app.service';
  */
 @ApiTags('payments')
 @ApiSecurity('apiKey')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, AppRateLimitGuard)
 @Controller('v1/payments')
 export class PaymentsAppController {
   constructor(private readonly payments: PaymentsAppService) {}

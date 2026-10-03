@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../auth/api-key.guard';
+import { AppRateLimitGuard } from '../../common/throttling/app-rate-limit.guard';
 import { CurrentApp } from '../../auth/current-app.decorator';
 import { App } from '../../database/entities';
 import { CustomersAppService } from './customers-app.service';
@@ -10,7 +11,7 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 
 @ApiTags('customers')
 @ApiSecurity('apiKey')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, AppRateLimitGuard)
 @Controller('v1/customers')
 export class CustomersAppController {
   constructor(private readonly customers: CustomersAppService) {}

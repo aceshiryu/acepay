@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../auth/api-key.guard';
+import { AppRateLimitGuard } from '../../common/throttling/app-rate-limit.guard';
 import { CurrentApp } from '../../auth/current-app.decorator';
 import { App } from '../../database/entities';
 import { CancelSubscriptionDto, CreateSubscriptionDto } from './dto/create-subscription.dto';
@@ -11,7 +12,7 @@ import { SubscriptionsAppService } from './subscriptions-app.service';
 
 @ApiTags('subscriptions')
 @ApiSecurity('apiKey')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, AppRateLimitGuard)
 @Controller('v1/subscriptions')
 export class SubscriptionsAppController {
   constructor(private readonly subscriptions: SubscriptionsAppService) {}

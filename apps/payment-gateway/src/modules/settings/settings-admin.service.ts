@@ -104,7 +104,8 @@ export class SettingsAdminService {
   } {
     const secret = this.config.get<string>('LEMONSQUEEZY_WEBHOOK_SECRET') ?? '';
     const body = {
-      meta: { event_name: 'order_created', custom_data: { acepay_tx: `sim_${randomUUID()}` } },
+      // A real LS payload carries a genuine AcePay uuid here, so emit one.
+      meta: { event_name: 'order_created', custom_data: { acepay_tx: randomUUID() } },
       data: {
         id: `sim_${randomUUID()}`,
         type: 'orders',

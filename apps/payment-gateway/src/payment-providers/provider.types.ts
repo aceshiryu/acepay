@@ -86,11 +86,18 @@ export interface FetchedSubscription {
   raw: Record<string, unknown>;
 }
 
+/** Per-call routing. `forUserId` is a Xendit sub-account id: marketplace
+ *  payments live on the merchant's sub-account, so reading or refunding them
+ *  must be done on its behalf. Providers without sub-accounts ignore it. */
+export interface ProviderCallOptions {
+  forUserId?: string | null;
+}
+
 export interface PaymentProvider {
   readonly name: Provider;
   createPayment(params: CreatePaymentParams): Promise<CreatePaymentResult>;
-  getPayment(providerTxId: string): Promise<FetchedPayment>;
-  refund(providerTxId: string, amount?: number): Promise<RefundResult>;
+  getPayment(providerTxId: string, opts?: ProviderCallOptions): Promise<FetchedPayment>;
+  refund(providerTxId: string, amount?: number, opts?: ProviderCallOptions): Promise<RefundResult>;
 
   // Subscriptions — providers that don't support these throw a clear error.
   createSubscription(params: CreateSubscriptionParams): Promise<CreateSubscriptionResult>;

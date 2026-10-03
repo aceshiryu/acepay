@@ -3,10 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
 import { LogActor, TransactionStatus, TransactionType } from '../../common/enums';
+import { PaymentsAppService } from '../payments/payments-app.service';
 import { PaymentReconcilerService } from '../../common/services/payment-reconciler.service';
-import {
-  Transaction, TransactionLog, WebhookEvent,
-} from '../../database/entities';
+import { App, Transaction, TransactionLog, WebhookEvent } from '../../database/entities';
 import { ListTransactionsDto, RefundDto } from './dto/list-transactions.dto';
 
 @Injectable()
@@ -15,7 +14,9 @@ export class TransactionsAdminService {
     @InjectRepository(Transaction) private readonly transactions: Repository<Transaction>,
     @InjectRepository(TransactionLog) private readonly logs: Repository<TransactionLog>,
     @InjectRepository(WebhookEvent) private readonly webhooks: Repository<WebhookEvent>,
+    @InjectRepository(App) private readonly apps: Repository<App>,
     private readonly reconciler: PaymentReconcilerService,
+    private readonly payments: PaymentsAppService,
   ) {}
 
   async sync(id: string) {
@@ -78,42 +79,32 @@ export class TransactionsAdminService {
     return this.logs.find({ where: { transactionId: id }, order: { createdAt: 'ASC' } });
   }
 
+  /**
+   * Operator-initiated refund.
+   *
+   * Delegates to the app-facing implementation rather than keeping a second
+   * copy. The copy that used to live here validated nothing (a negative amount
+   * was accepted and became a POSITIVE refund row), had no cumulative guard,
+   * and — worst — never called the provider at all: it wrote a refund row and
+   * returned 201 while no money moved. One implementation, one set of guards,
+   * with the actor recorded as the admin rather than the app.
+   */
   async refund(id: string, dto: RefundDto): Promise<Transaction> {
     const tx = await this.findOne(id);
-    if (tx.status !== TransactionStatus.Succeeded) {
-      throw new BadRequestException({
-        error: 'not_refundable',
-        message: `Transaction is ${tx.status}; only succeeded payments can be refunded`,
-      });
-    }
     if (tx.type === TransactionType.Refund) {
       throw new BadRequestException({
         error: 'already_a_refund',
         message: 'A refund transaction cannot itself be refunded',
       });
     }
-    const amount = dto.amount ?? tx.amount;
-    if (amount > tx.amount) {
+    const app = await this.apps.findOne({ where: { id: tx.appId } });
+    if (!app) {
       throw new BadRequestException({
-        error: 'amount_exceeds_original',
-        message: `Refund amount ${amount} exceeds original ${tx.amount}`,
+        error: 'app_not_found',
+        message: `Transaction ${id} has no owning app to refund against`,
       });
     }
-    // Provider call is built in slice 4. For now we record the refund row + log.
-    const refund = this.transactions.create({
-      appId: tx.appId,
-      customerId: tx.customerId,
-      subscriptionId: tx.subscriptionId,
-      provider: tx.provider,
-      type: TransactionType.Refund,
-      status: TransactionStatus.Pending,
-      amount: -amount,
-      currency: tx.currency,
-      description: `Refund of ${tx.id}${dto.reason ? ` — ${dto.reason}` : ''}`,
-      metadata: { refundOf: tx.id, reason: dto.reason ?? null },
-      idempotencyKey: `refund_${tx.id}_${Date.now()}`,
-    });
-    return this.transactions.save(refund);
+    return this.payments.refund(app, tx.id, dto, LogActor.Admin);
   }
 
   // ── helpers ────────────────────────────────────────────────────────────

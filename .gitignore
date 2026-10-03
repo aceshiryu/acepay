@@ -40,8 +40,9 @@ Thumbs.db
 
 .nx/cache
 .nx/workspace-data
-.claude/worktrees
-.claude/settings.local.json
+# Claude Code files (local-only, never pushed)
+.claude/
+CLAUDE.md
 
 test-output
 
@@ -54,3 +55,6 @@ out
 **/.env.local
 **/.env.*.local
 !**/.env.example
+
+# Local Redis snapshots (can contain queued job payloads)
+*.rdb

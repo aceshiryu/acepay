@@ -21,10 +21,22 @@ export class WebhookDeliveryQueueService {
     @InjectQueue(WEBHOOK_DELIVERY_QUEUE) private readonly queue: Queue<WebhookDeliveryJob>,
   ) {}
 
-  async enqueue(job: WebhookDeliveryJob): Promise<void> {
+  /**
+   * `replaceExisting` is for an operator-initiated retry. Bull silently ignores
+   * an add whose jobId already exists, and the job id is the event id — so
+   * retrying an event that has already been attempted would enqueue nothing,
+   * leaving it parked in `pending` forever with no delivery. Dropping the old
+   * job first makes the retry real while keeping the dedup for normal traffic.
+   */
+  async enqueue(job: WebhookDeliveryJob, opts: { replaceExisting?: boolean } = {}): Promise<void> {
+    const jobId = `wh_${job.webhookEventId}`;
+    if (opts.replaceExisting) {
+      const existing = await this.queue.getJob(jobId);
+      if (existing) await existing.remove();
+    }
     await this.queue.add(job, {
       // Use the event id as the job id so re-enqueues for the same event get deduplicated.
-      jobId: `wh_${job.webhookEventId}`,
+      jobId,
     });
     this.logger.debug(`Enqueued webhook delivery for event ${job.webhookEventId}`);
   }

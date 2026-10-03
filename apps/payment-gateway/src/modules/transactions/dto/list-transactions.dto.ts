@@ -1,8 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import {
-  IsDateString, IsEnum, IsOptional, IsString, IsUUID, MaxLength,
-} from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import {
   Provider, Source, TransactionStatus, TransactionType,
@@ -62,9 +60,14 @@ export class ListTransactionsDto extends PaginationDto {
 }
 
 export class RefundDto {
-  @ApiPropertyOptional({ description: 'Optional partial-refund amount (smallest unit). Defaults to full amount.' })
+  @ApiPropertyOptional({
+    minimum: 1,
+    description: 'Optional partial-refund amount (smallest unit). Defaults to full amount.',
+  })
   @IsOptional()
   @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
   amount?: number;
 
   @ApiPropertyOptional()

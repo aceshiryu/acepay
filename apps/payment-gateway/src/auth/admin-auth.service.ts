@@ -5,6 +5,8 @@ import { Repository } from 'typeorm';
 import { signJwt, verifyJwt, verifyPassword } from '../common/crypto';
 import { User } from '../database/entities';
 
+const DEFAULT_TTL_HOURS = 12;
+
 export interface AdminTokenPayload {
   sub: string;
   email: string;
@@ -40,8 +42,23 @@ export class AdminAuthService {
   }
 
   issueToken(user: User): string {
-    const ttlHours = Number(this.config.get<string>('ADMIN_JWT_TTL_HOURS') ?? 12);
-    return signJwt({ sub: user.id, email: user.email }, this.requireSecret(), ttlHours * 3600);
+    return signJwt({ sub: user.id, email: user.email }, this.requireSecret(), this.ttlSeconds());
+  }
+
+  /**
+   * Token lifetime in seconds. `Number('')` is 0 and `Number('twelve')` is NaN,
+   * and `??` only defaults on null/undefined — so a blank or mistyped
+   * ADMIN_JWT_TTL_HOURS used to mint tokens that were either already expired
+   * (locking every admin out) or had a NaN `exp` that verifyJwt skips, i.e. a
+   * token that never expires. Anything not a positive finite number falls back
+   * to the documented default instead.
+   */
+  private ttlSeconds(): number {
+    const raw = this.config.get<string>('ADMIN_JWT_TTL_HOURS');
+    const hours = Number(raw);
+    const usable = raw !== undefined && raw !== null && String(raw).trim() !== ''
+      && Number.isFinite(hours) && hours > 0;
+    return (usable ? hours : DEFAULT_TTL_HOURS) * 3600;
   }
 
   verifyToken(token: string): AdminTokenPayload | null {

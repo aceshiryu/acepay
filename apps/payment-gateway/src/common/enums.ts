@@ -90,3 +90,49 @@ export enum LogAction {
   SubscriptionExpired = 'subscription.expired',
   SubscriptionRenewed = 'subscription.renewed',
 }
+
+/** A marketplace merchant (e.g. a BooklyPH coach) that receives booking money
+ *  into its own Xendit sub-account. Only `active` merchants can be charged for. */
+export enum MerchantStatus {
+  /** Sub-account requested, waiting for Xendit to report it LIVE. */
+  Pending = 'pending',
+  Active = 'active',
+  /** Operator paused: no new payments, excluded from payout runs. */
+  Paused = 'paused',
+  /** Xendit suspended the sub-account. */
+  Suspended = 'suspended',
+}
+
+/** Lifecycle of one payout (money OUT of a merchant's sub-account). */
+export enum PayoutStatus {
+  /** Line in a payout run that hasn't been confirmed yet. */
+  Draft = 'draft',
+  /** Confirmed; waiting for the worker to send it to Xendit. */
+  Queued = 'queued',
+  /** Sent to Xendit; REQUESTED / ACCEPTED / LOCKED all collapse to this. */
+  Pending = 'pending',
+  Succeeded = 'succeeded',
+  Failed = 'failed',
+  Canceled = 'canceled',
+  /** Sent, then bounced back by the bank — the money is in the balance again. */
+  Reversed = 'reversed',
+  /** Operator unticked it at confirm time. */
+  Skipped = 'skipped',
+}
+
+/** A one-click payout run across many merchants. */
+export enum PayoutRunStatus {
+  /** Worker is reading each merchant's live balance. */
+  Building = 'building',
+  BuildFailed = 'build_failed',
+  /** Preview ready for the operator to review and confirm. */
+  Draft = 'draft',
+  /** Confirmed; waiting for the worker. */
+  Queued = 'queued',
+  /** Worker is sending payouts / waiting on Xendit results. */
+  Processing = 'processing',
+  Completed = 'completed',
+  CompletedWithFailures = 'completed_with_failures',
+  /** Preview thrown away without sending anything. */
+  Discarded = 'discarded',
+}

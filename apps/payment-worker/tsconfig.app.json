@@ -17,6 +17,8 @@
     "jest.config.cts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
+    "../payment-gateway/src/**/*.spec.ts",
+    "../payment-gateway/src/**/*.test.ts",
     "eslint.config.js",
     "eslint.config.cjs",
     "eslint.config.mjs"

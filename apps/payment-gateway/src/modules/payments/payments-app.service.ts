@@ -74,7 +74,12 @@ export class PaymentsAppService {
     return toPaged(data, total, page, pageSize);
   }
 
-  async refund(app: App, id: string, dto: RefundPaymentDto): Promise<Transaction> {
+  async refund(
+    app: App,
+    id: string,
+    dto: RefundPaymentDto,
+    actor: LogActor = LogActor.App,
+  ): Promise<Transaction> {
     const tx = await this.findOne(app, id);
     if (tx.status !== TransactionStatus.Succeeded) {
       throw new BadRequestException({
@@ -86,30 +91,87 @@ export class PaymentsAppService {
       throw new BadRequestException({ error: 'no_provider_tx', message: 'Transaction has no provider id to refund' });
     }
     const amount = dto.amount ?? tx.amount;
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new BadRequestException({
+        error: 'invalid_refund_amount',
+        message: 'Refund amount must be a positive whole number in the smallest currency unit',
+      });
+    }
     if (amount > tx.amount) {
       throw new BadRequestException({ error: 'amount_exceeds_original', message: `Refund amount exceeds original` });
     }
 
-    const provider = this.providers.resolve(tx.provider);
-    const result = await provider.refund(tx.providerTxId, amount);
+    // Reserve, then settle. Checking the refunded total and inserting the refund
+    // row have to be atomic: without a lock two simultaneous partial refunds
+    // both read the same total, both pass, and the payment is over-refunded.
+    // Proven live — two concurrent 30000 refunds against a 49900 payment both
+    // reached the provider. The reservation row counts toward the total from the
+    // moment it exists, and is marked failed if the provider rejects it, so a
+    // failed attempt stops blocking later ones.
+    const reserved = await this.transactions.manager.transaction(async (em) => {
+      // Lock the original so concurrent refunds against it serialise here.
+      await em.findOne(Transaction, {
+        where: { id: tx.id, appId: app.id },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    let refund = this.transactions.create({
-      appId: tx.appId,
-      customerId: tx.customerId,
-      provider: tx.provider,
-      providerTxId: result.providerRefundId,
-      type: TransactionType.Refund,
-      status: result.status,
-      amount: -amount,
-      currency: tx.currency,
-      description: `Refund of ${tx.id}${dto.reason ? ` — ${dto.reason}` : ''}`,
-      metadata: { refundOf: tx.id, reason: dto.reason ?? null },
+      const alreadyRow = await em.createQueryBuilder(Transaction, 't')
+        .select('COALESCE(SUM(-t.amount), 0)', 'refunded')
+        .where('t.app_id = :appId', { appId: app.id })
+        .andWhere('t.type = :type', { type: TransactionType.Refund })
+        .andWhere("t.metadata ->> 'refundOf' = :txId", { txId: tx.id })
+        .andWhere('t.status != :failed', { failed: TransactionStatus.Failed })
+        .getRawOne<{ refunded: string }>();
+      const alreadyRefunded = Number(alreadyRow?.refunded ?? 0) || 0;
+      const refundable = tx.amount - alreadyRefunded;
+      if (amount > refundable) {
+        throw new BadRequestException({
+          error: 'amount_exceeds_refundable',
+          message: `Only ${refundable} of ${tx.amount} is still refundable; ${alreadyRefunded} has already been refunded`,
+          refundable,
+          alreadyRefunded,
+        });
+      }
+
+      return em.save(em.create(Transaction, {
+        appId: tx.appId,
+        customerId: tx.customerId,
+        provider: tx.provider,
+        type: TransactionType.Refund,
+        status: TransactionStatus.Pending,
+        amount: -amount,
+        currency: tx.currency,
+        description: `Refund of ${tx.id}${dto.reason ? ` — ${dto.reason}` : ''}`,
+        metadata: { refundOf: tx.id, reason: dto.reason ?? null },
+        merchantId: tx.merchantId ?? null,
+        providerAccountId: tx.providerAccountId ?? null,
+      }));
     });
-    refund = await this.transactions.save(refund);
+
+    // The provider call happens outside the lock, so a slow provider does not
+    // hold up every other refund on this payment.
+    const provider = this.providers.resolve(tx.provider);
+    let result;
+    try {
+      // A marketplace refund comes out of the merchant's sub-account. The
+      // platform fee is NOT returned automatically (Xendit doesn't reverse splits).
+      result = tx.providerAccountId
+        ? await provider.refund(tx.providerTxId, amount, { forUserId: tx.providerAccountId })
+        : await provider.refund(tx.providerTxId, amount);
+    } catch (err) {
+      // Release the reservation so it stops counting against the balance.
+      reserved.status = TransactionStatus.Failed;
+      await this.transactions.save(reserved);
+      throw err;
+    }
+
+    reserved.status = result.status;
+    reserved.providerTxId = result.providerRefundId;
+    const refund = await this.transactions.save(reserved);
 
     await this.txLogger.log({
       transaction: tx, action: LogAction.PaymentRefundRequested,
-      actor: LogActor.App, statusFrom: tx.status, statusTo: tx.status,
+      actor, statusFrom: tx.status, statusTo: tx.status,
       details: { refundTx: refund.id, amount },
     });
     return refund;

@@ -7,10 +7,31 @@ import 'dotenv/config';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app/app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { initSentry } from './common/observability/sentry';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  // Error tracking — must init before the app is created. No-op without SENTRY_DSN.
+  initSentry();
+
+  // bufferLogs so early logs wait for the pino logger to be wired below.
+  const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
+
+  // Security headers (HSTS, no-sniff, frame options, etc.). CSP is disabled so
+  // it doesn't break the Swagger UI at /docs; the API serves JSON, not HTML.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+
+  // One consistent error envelope for every route: { error: { code, message, requestId } }.
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:4000,http://localhost:3000')
     .split(',').map((s) => s.trim()).filter(Boolean);

@@ -6,3 +6,7 @@ export { Transaction } from './transaction.entity';
 export { TransactionLog } from './transaction-log.entity';
 export { User } from './user.entity';
 export { WebhookEvent } from './webhook-event.entity';
+export { Merchant } from './merchant.entity';
+export { Payout } from './payout.entity';
+export { PayoutRun } from './payout-run.entity';
+export { XenditSplitRule } from './xendit-split-rule.entity';

@@ -287,3 +287,141 @@ export interface NotificationStats {
   info: number;
   success: number;
 }
+
+// ── Marketplace ──────────────────────────────────────────────────────────
+export type MerchantStatus = 'pending' | 'active' | 'paused' | 'suspended';
+export type PayoutRunStatus =
+  | 'building' | 'build_failed' | 'draft' | 'queued' | 'processing'
+  | 'completed' | 'completed_with_failures' | 'discarded';
+export type PayoutStatus =
+  | 'draft' | 'queued' | 'pending' | 'succeeded' | 'failed' | 'canceled' | 'reversed' | 'skipped';
+export type ExclusionReason =
+  | 'paused' | 'no_payout_destination' | 'below_minimum' | 'balance_error'
+  | 'no_sub_account' | 'payout_in_progress';
+
+export interface MarketplaceSettingsRow {
+  appId: string;
+  appName: string;
+  appSlug: string;
+  marketplaceEnabled: boolean;
+  feePercent: number | null;
+  /** Minor units (centavos). */
+  minPayout: number;
+}
+export interface MarketplaceAppSummary extends MarketplaceSettingsRow {
+  merchants: Partial<Record<MerchantStatus, number>>;
+  revenue: Array<{ currency: string; gross: number; platformFees: number; payments: number }>;
+  paidOut: number;
+  payoutsInFlight: number;
+}
+export interface MarketplaceSummary {
+  payoutFeeReserve: number;
+  apps: MarketplaceAppSummary[];
+}
+export interface MarketplaceChannel {
+  channelCode: string;
+  channelName: string;
+  channelCategory: string;
+  currency: string;
+  minimum: number | null;
+  maximum: number | null;
+}
+
+interface MerchantBase {
+  id: string;
+  appId: string;
+  appName: string;
+  externalRef: string;
+  name: string;
+  email: string;
+  status: MerchantStatus;
+  feePercent: number | null;
+  feeOverridePercent: number | null;
+  feeOverrideEndsAt: string | null;
+  payoutChannelCode: string | null;
+  /** Masked, e.g. "•••• 1234". */
+  payoutAccount: string | null;
+  payoutAccountHolderName: string | null;
+  hasPayoutDestination: boolean;
+  xenditAccountId: string | null;
+  xenditAccountStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata: Record<string, unknown> | null;
+}
+export interface MerchantListRow extends MerchantBase {
+  duplicateDestinationInApp: boolean;
+  sharedDestinationOtherApps: number;
+}
+export interface MerchantDetail extends MerchantBase {
+  payoutAccountNumber: string | null;
+  sharedWith: Array<{ merchantId: string; name: string; appId: string; appName: string; sameApp: boolean }>;
+}
+export interface MerchantBalance {
+  merchantId: string;
+  currency: string;
+  available: number;
+  payable: number;
+  inFlight: number;
+  minPayout: number;
+}
+
+export interface Payout {
+  id: string;
+  runId: string | null;
+  merchantId: string;
+  appId: string;
+  amount: number;
+  currency: string;
+  status: PayoutStatus;
+  providerStatus: string | null;
+  channelCode: string | null;
+  accountNumber: string | null;
+  accountHolderName: string | null;
+  xenditPayoutId: string | null;
+  failureCode: string | null;
+  failureMessage: string | null;
+  retryOf: string | null;
+  estimatedArrivalAt: string | null;
+  sentAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+export interface PayoutRunPayout extends Payout {
+  merchantName: string;
+  merchantExternalRef: string;
+  appName: string;
+  balanceAtBuild: number | null;
+}
+export interface PayoutExclusion {
+  merchantId: string;
+  merchantName: string;
+  appId: string;
+  balance: number | null;
+  reason: ExclusionReason;
+  detail?: string;
+}
+export interface PayoutRun {
+  id: string;
+  appId: string | null;
+  app?: { name: string } | null;
+  status: PayoutRunStatus;
+  currency: string;
+  totalAmount: number;
+  payoutCount: number;
+  excluded: PayoutExclusion[] | null;
+  errorMessage: string | null;
+  createdBy: string | null;
+  builtAt: string | null;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+export interface PayoutRunDetail extends PayoutRun {
+  previewExpiresAt: string | null;
+  counts: Partial<Record<PayoutStatus, number>>;
+  amounts: Partial<Record<PayoutStatus, number>>;
+  excluded: PayoutExclusion[];
+  payouts: PayoutRunPayout[];
+}

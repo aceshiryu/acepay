@@ -12,6 +12,9 @@ import {
   PlanInterval, Provider, SubscriptionStatus, TransactionStatus, TransactionType,
   WebhookDeliveryStatus,
 } from '../../../../payment-gateway/src/common/enums';
+import {
+  onChargeFailed, onChargeSucceeded, readDunning,
+} from '../../../../payment-gateway/src/common/billing/dunning';
 import { XenditAdapter } from '../../../../payment-gateway/src/payment-providers/xendit.adapter';
 import {
   Subscription, Transaction, WebhookEvent,
@@ -27,6 +30,9 @@ import {
  *    currentPeriodEnd, and schedules the next cycle.
  *  - On failure: marks the subscription past_due and emits an outbound webhook.
  */
+/** How long to wait before re-checking a paused subscription's deferred cycle. */
+const PAUSE_RECHECK_MS = 24 * 60 * 60 * 1000;
+
 @Processor(SUBSCRIPTION_BILLING_QUEUE)
 export class SubscriptionBillingProcessor {
   private readonly logger = new Logger(SubscriptionBillingProcessor.name);
@@ -53,6 +59,14 @@ export class SubscriptionBillingProcessor {
     }
     if (sub.status === SubscriptionStatus.Expired) {
       this.logger.log(`Sub ${subscriptionId} already expired — dropping cycle ${cycleNumber}`);
+      return;
+    }
+    if (sub.status === SubscriptionStatus.Paused) {
+      // AcePay-managed pause: don't charge. Re-defer this same cycle so the
+      // schedule survives; when the app resumes (status -> active) the next
+      // firing charges normally. Check back in a day.
+      this.logger.log(`Sub ${subscriptionId} is paused — deferring cycle ${cycleNumber}`);
+      await this.billingQueue.enqueue({ subscriptionId: sub.id, cycleNumber }, PAUSE_RECHECK_MS);
       return;
     }
     if (sub.status === SubscriptionStatus.Canceled) {
@@ -148,6 +162,11 @@ export class SubscriptionBillingProcessor {
       sub.currentPeriodStart = new Date();
       sub.currentPeriodEnd = nextPeriodEnd;
       sub.status = SubscriptionStatus.Active;
+
+      // Clear any dunning streak; if we were recovering from prior failures,
+      // emit `payment_recovered` instead of a plain `payment_succeeded`.
+      const recovery = onChargeSucceeded(readDunning(sub.metadata));
+      sub.metadata = { ...(sub.metadata ?? {}), dunning: recovery.nextState };
       await this.subs.save(sub);
 
       const msUntilNext = nextPeriodEnd.getTime() - Date.now();
@@ -155,13 +174,32 @@ export class SubscriptionBillingProcessor {
         { subscriptionId: sub.id, cycleNumber: cycleNumber + 1 },
         Math.max(0, msUntilNext),
       );
-      await this.emitWebhook(sub, savedTx, 'subscription.payment_succeeded');
+      await this.emitWebhook(
+        sub,
+        savedTx,
+        recovery.recovered ? 'subscription.payment_recovered' : 'subscription.payment_succeeded',
+      );
     } else if (!isPending) {
-      sub.status = SubscriptionStatus.PastDue;
-      await this.subs.save(sub);
-      await this.emitWebhook(sub, savedTx, 'subscription.payment_failed');
-      // Don't throw — failed payment is a "normal" outcome; we don't want Bull to retry
-      // the same cycle endlessly. Smart-retry is a follow-up (track failures on the sub).
+      // Smart-retry (dunning): retry on an escalating schedule and only drop the
+      // subscription to past_due once the retries are exhausted. The sub stays
+      // Active during the grace window so the app keeps access while we retry.
+      const decision = onChargeFailed(readDunning(sub.metadata));
+      sub.metadata = { ...(sub.metadata ?? {}), dunning: decision.nextState };
+
+      if (decision.shouldRetry) {
+        await this.subs.save(sub);
+        await this.billingQueue.enqueue(
+          { subscriptionId: sub.id, cycleNumber },
+          decision.retryDelayMs,
+        );
+        await this.emitWebhook(sub, savedTx, 'subscription.payment_retrying');
+      } else {
+        sub.status = SubscriptionStatus.PastDue;
+        await this.subs.save(sub);
+        await this.emitWebhook(sub, savedTx, 'subscription.payment_failed');
+      }
+      // Never throw — a failed charge is a normal outcome; retries are scheduled
+      // explicitly above rather than through Bull's blind job-level retry.
     }
   }
 

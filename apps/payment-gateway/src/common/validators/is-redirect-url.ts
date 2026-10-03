@@ -1,7 +1,7 @@
 import { registerDecorator, ValidationOptions } from 'class-validator';
 
 // Standard URL scheme: lowercase letter then alphanum / + . - (RFC 3986).
-const SCHEME_RE = /^([a-z][a-z0-9+.\-]*):\/\/.+$/i;
+const SCHEME_RE = /^([a-z][a-z0-9+.-]*):\/\/.+$/i;
 
 // Schemes that should never be a redirect target — they can execute code or
 // read local files in a browser context and are virtually never legitimate
