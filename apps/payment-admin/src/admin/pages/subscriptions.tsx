@@ -42,7 +42,7 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
         render={(s) => {
           const mrr = pickPrimary(s.mrrEstimate);
           return (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
               <MiniStatCard label="Active" value={s.active} sub="recurring revenue" />
               <MiniStatCard label="Past Due" value={s.past_due} sub="retry in progress" warning={s.past_due > 0} />
               <MiniStatCard label="Paused" value={s.paused} sub="customer hold" />
@@ -74,7 +74,7 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
           <>
             <Table<Subscription>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.id.slice(0, 8)}…</span> },
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
@@ -122,7 +122,7 @@ function CancelSubForm({ sub, onClose, onDone }: {
   return (
     <>
       <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 14 }}>
-        Cancel <span className="mono">{sub.id.slice(0, 12)}…</span>? The provider will stop billing
+        Cancel <span className="mono">{sub.code}</span>? The provider will stop billing
         at the end of the current period; the customer keeps access until then.
       </div>
       {error && <div style={{ color: 'var(--bad)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
@@ -186,11 +186,11 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
     <PageShell
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-          <span className="mono" style={{ fontSize: 19 }}>{sub.id.slice(0, 12)}…</span>
+          <span className="mono" style={{ fontSize: 19 }}>{sub.code}</span>
           <StatusBadge status={sub.status} />
         </span>
       }
-      breadcrumbs={[{ label: 'Subscriptions', onClick: onBack }, { label: sub.id.slice(0, 12) }]}
+      breadcrumbs={[{ label: 'Subscriptions', onClick: onBack }, { label: sub.code }]}
       actions={
         <>
           {sub.status === 'canceled' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > Date.now() && (
@@ -254,7 +254,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
       <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16 }}>
         <Card title="Identification" padding={0}>
           <div style={{ padding: '4px 16px 14px' }}>
-            <KV k="Subscription" v={<span className="mono">{sub.id}</span>} />
+            <KV k="Subscription" v={<span className="mono">{sub.code}</span>} />
             {sub.app && (
               <KV k="App" v={
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent)' }}
@@ -281,7 +281,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
               <Table
                 dense
                 columns={[
-                  { key: 'id', label: 'Transaction', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.id.slice(0, 8)}…</span> },
+                  { key: 'id', label: 'Transaction', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
                   { key: 'date', label: 'Date', render: (r) => <span style={{ color: 'var(--muted)' }}>{formatDateTime(r.createdAt)}</span> },
                   { key: 'amount', label: 'Amount', align: 'right', render: (r) => <span className="mono" style={{ fontWeight: 600 }}>{formatAmountCompact(r.amount, r.currency)}</span> },
                   { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} size="sm" /> },

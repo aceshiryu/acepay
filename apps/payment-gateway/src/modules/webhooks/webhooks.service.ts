@@ -1,3 +1,4 @@
+import { isRefundableOnline, paymentChannelOf } from '../../common/payment-methods';
 import {
   BadRequestException, Injectable, Logger,
 } from '@nestjs/common';
@@ -60,7 +61,7 @@ export class WebhooksService {
     });
     if (existing) {
       this.logger.debug(`Duplicate event ${event.providerEventId} — already processed`);
-      return { duplicate: true, eventId: existing.id };
+      return { duplicate: true, eventId: existing.id, eventCode: existing.code };
     }
 
     const isSubscriptionEvent = event.event.startsWith('subscription.')
@@ -87,6 +88,9 @@ export class WebhooksService {
       tx.webhookReceivedAt = new Date();
       if (event.status === TransactionStatus.Succeeded || event.status === TransactionStatus.Refunded) {
         tx.providerCompletedAt ??= event.occurredAt ?? new Date();
+      }
+      if (event.status === TransactionStatus.Succeeded) {
+        tx.paymentChannel ??= paymentChannelOf(event.raw);
       }
       // Swap providerTxId from checkout id (UUID) to order id once we have it.
       if (event.providerTxId && event.providerTxId !== tx.providerTxId) {
@@ -316,7 +320,7 @@ export class WebhooksService {
   ) {
     if (!appId) {
       this.logger.warn(`Webhook event ${event.providerEventId} could not be associated with an app — skipping delivery`);
-      return { duplicate: false, eventId: null, reason: 'no_app_match' };
+      return { duplicate: false, eventId: null, eventCode: null, reason: 'no_app_match' };
     }
     const normalized = buildNormalizedPayload(event, tx);
     let webhookEvent = this.webhooks.create({
@@ -340,7 +344,7 @@ export class WebhooksService {
         transactionId: tx?.id ?? null,
       });
     }
-    return { duplicate: false, eventId: webhookEvent.id };
+    return { duplicate: false, eventId: webhookEvent.id, eventCode: webhookEvent.code };
   }
 
   private async resolveTransaction(event: NormalizedEvent): Promise<Transaction | null> {
@@ -565,6 +569,9 @@ function buildNormalizedPayload(event: NormalizedEvent, tx: Transaction | null):
     amount: tx?.amount ?? null,
     currency: tx?.currency ?? null,
     metadata: tx?.metadata ?? {},
+    // How it was paid, and whether Xendit can refund it online (QR Ph cannot).
+    payment_channel: tx?.paymentChannel ?? null,
+    refundable_online: isRefundableOnline(tx?.paymentChannel),
     // Marketplace payments (Slice 6) carry the split so the app can show the
     // merchant their share. Absent for subscription / non-marketplace payments.
     ...(tx?.merchantId ? {

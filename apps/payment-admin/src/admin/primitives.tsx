@@ -53,13 +53,13 @@ export function ProviderTag({ name, size = 'md' }: { name: string; size?: 'sm' |
     : p === 'xendit'
     ? { bg: 'var(--xendit-bg)', fg: 'var(--xendit-ink)', label: 'Xendit' }
     : { bg: 'var(--neutral-soft)', fg: 'var(--ink-2)', label: name };
-  const pad = size === 'sm' ? '1px 6px' : '2px 7px';
+  const pad = size === 'sm' ? '1px 8px' : '2px 9px';
   const fs = size === 'sm' ? 10.5 : 11;
   return (
-    <span className="mono" style={{
-      display: 'inline-block', padding: pad, borderRadius: 4,
+    <span style={{
+      display: 'inline-block', padding: pad, borderRadius: 999,
       background: styles.bg, color: styles.fg,
-      fontSize: fs, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1.4,
+      fontSize: fs, fontWeight: 600, letterSpacing: 0.1, lineHeight: 1.4,
     }}>{styles.label}</span>
   );
 }
@@ -79,7 +79,7 @@ export function SourceTag({ source }: { source: string }) {
 
 export function TypePill({ type }: { type: string }) {
   const map: Record<string, { label: string; fg: string; bg: string }> = {
-    payment:      { label: 'payment',      fg: 'var(--ink-2)', bg: '#EFECE0' },
+    payment:      { label: 'payment',      fg: 'var(--ink-2)', bg: 'var(--neutral-soft)' },
     refund:       { label: 'refund',       fg: '#B36A21',      bg: 'var(--refund-soft)' },
     subscription: { label: 'subscription', fg: '#5851B0',      bg: '#EBE7F4' },
   };
@@ -94,7 +94,7 @@ export function TypePill({ type }: { type: string }) {
 
 type ButtonProps = {
   children: ReactNode;
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'block';
   size?: 'sm' | 'md' | 'lg';
   onClick?: () => void;
   leading?: ReactNode;
@@ -110,12 +110,13 @@ export function Button({ children, variant = 'secondary', size = 'md', onClick, 
     secondary: { bg: 'var(--surface)', fg: 'var(--ink)',        border: 'var(--border)' },
     ghost:     { bg: 'transparent',    fg: 'var(--ink-2)',      border: 'transparent' },
     danger:    { bg: 'var(--surface)', fg: 'var(--bad)',        border: 'var(--border)' },
+    block:     { bg: 'var(--surface)', fg: 'var(--ink)',        border: 'var(--border)' },
   } as const;
   const v = variants[variant];
   const sizes = {
-    sm: { padding: '4px 9px',  fontSize: 11.5, h: 26 },
-    md: { padding: '6px 12px', fontSize: 12.5, h: 30 },
-    lg: { padding: '8px 16px', fontSize: 13.5, h: 36 },
+    sm: { padding: '4px 11px', fontSize: 12,   h: 30 },
+    md: { padding: '7px 16px', fontSize: 13,   h: 38 },
+    lg: { padding: '9px 20px', fontSize: 14,   h: 44 },
   } as const;
   const sz = sizes[size];
   return (
@@ -124,10 +125,12 @@ export function Button({ children, variant = 'secondary', size = 'md', onClick, 
       disabled={disabled}
       title={title}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, height: sz.h,
-        padding: sz.padding, fontSize: sz.fontSize, fontWeight: 500,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: sz.h,
+        padding: sz.padding, fontSize: variant === 'block' ? 12 : sz.fontSize, fontWeight: 600,
         background: v.bg, color: v.fg, border: `1px solid ${v.border}`,
-        borderRadius: 6, transition: 'all 120ms', whiteSpace: 'nowrap',
+        borderRadius: 10, transition: 'all 120ms', whiteSpace: 'nowrap',
+        boxShadow: variant === 'primary' ? '0 6px 16px -8px rgba(79,124,247,0.7)' : 'none',
+        ...(variant === 'block' ? { width: '100%', textTransform: 'uppercase' as const, letterSpacing: 0.6 } : {}),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
         ...style,
@@ -150,18 +153,18 @@ type CardProps = {
 export function Card({ children, style, padding = 16, title, action, subtitle }: CardProps) {
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
+      background: 'var(--surface)', border: '1px solid var(--hairline)',
       borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-1)',
       ...style,
     }}>
       {(title || action) && (
         <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 16px', borderBottom: '1px solid var(--hairline)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '16px 20px', borderBottom: '1px solid var(--hairline)',
         }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{title}</div>
-            {subtitle && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{subtitle}</div>}
+            <div style={{ fontSize: 15, fontWeight: 650, color: 'var(--ink)', letterSpacing: -0.2 }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{subtitle}</div>}
           </div>
           {action}
         </div>
@@ -177,7 +180,8 @@ type IconName =
   | 'arrow' | 'arrowUp' | 'arrowDn' | 'ext' | 'copy' | 'refresh'
   | 'bell' | 'settings' | 'mobile' | 'web' | 'check' | 'x' | 'clock'
   | 'warn' | 'skull' | 'filter' | 'download' | 'play' | 'pause'
-  | 'spade' | 'eye' | 'more' | 'plus_thin';
+  | 'spade' | 'eye' | 'more' | 'plus_thin'
+  | 'card' | 'wallet' | 'bank' | 'store' | 'grid' | 'list';
 
 type IconProps = {
   name: IconName | string;
@@ -229,6 +233,12 @@ export function Icon({ name, size = 14, color = 'currentColor', strokeWidth = 1.
     eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
     more: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
     plus_thin: <><path d="M12 5v14M5 12h14" /></>,
+    card: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18M7 15h4" /></>,
+    wallet: <><path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6" /><circle cx="16.5" cy="13.5" r="1.2" /></>,
+    bank: <><path d="M3 10 12 4l9 6" /><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8" /><path d="M3 21h18" /></>,
+    store: <><path d="M4 9 5.5 4h13L20 9" /><path d="M4 9a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0A2.7 2.7 0 0 0 20 9" /><path d="M5 11v9h14v-9" /><path d="M10 20v-5h4v5" /></>,
+    grid: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
+    list: <><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="4.5" cy="6" r="1" /><circle cx="4.5" cy="12" r="1" /><circle cx="4.5" cy="18" r="1" /></>,
   };
   return <svg {...common}>{paths[name] || null}</svg>;
 }
@@ -279,6 +289,30 @@ export function SectionHeader({ title, action, count }: { title: string; action?
   );
 }
 
+/**
+ * Copies `value` to the clipboard and says so for a moment. The label is the
+ * button's accessible name (it shows only an icon).
+ */
+export function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (no https / permission): the value is still selectable */
+    }
+  };
+  return (
+    <button type="button" onClick={() => void copy()} aria-label={copied ? 'Copied' : label} title={copied ? 'Copied' : label}
+      style={{ background: 'none', border: 'none', padding: 4, color: copied ? 'var(--ok)' : 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
+      <Icon name={copied ? 'check' : 'copy'} size={12} />
+      {copied ? 'Copied' : null}
+    </button>
+  );
+}
+
 export function KV({ k, v, mono = false, copy = false }: { k: string; v: ReactNode; mono?: boolean; copy?: boolean }) {
   return (
     <div style={{
@@ -293,11 +327,7 @@ export function KV({ k, v, mono = false, copy = false }: { k: string; v: ReactNo
         display: 'flex', alignItems: 'center', gap: 8, minWidth: 0,
       }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span>
-        {copy && (
-          <button style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted-2)' }}>
-            <Icon name="copy" size={12} />
-          </button>
-        )}
+        {copy && typeof v === 'string' && <CopyButton value={v} label={`Copy ${k}`} />}
       </div>
     </div>
   );
@@ -327,9 +357,9 @@ export function Table<T>({ columns, rows, onRowClick, getRowKey, dense = false }
             {columns.map(c => (
               <th key={c.key} style={{
                 textAlign: c.align || 'left',
-                padding: dense ? '8px 12px' : '10px 16px',
+                padding: dense ? '9px 12px' : '11px 20px',
                 fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-                borderBottom: '1px solid var(--border)',
+                borderBottom: '1px solid var(--hairline)',
                 background: 'var(--surface-2)',
                 textTransform: 'uppercase', letterSpacing: 0.4,
                 whiteSpace: 'nowrap',
@@ -347,12 +377,12 @@ export function Table<T>({ columns, rows, onRowClick, getRowKey, dense = false }
                 cursor: onRowClick ? 'pointer' : 'default',
                 transition: 'background 100ms',
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+              onMouseEnter={e => (e.currentTarget.style.background = '#F5F8FF')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}
             >
               {columns.map(c => (
                 <td key={c.key} style={{
-                  padding: dense ? '8px 12px' : '11px 16px',
+                  padding: dense ? '10px 12px' : '14px 20px',
                   borderBottom: '1px solid var(--hairline)',
                   textAlign: c.align || 'left',
                   whiteSpace: c.wrap ? 'normal' : 'nowrap',
@@ -381,7 +411,7 @@ export function FilterSelect({ label, value, options, onChange }: {
       padding: '5px 8px 5px 10px',
       background: 'var(--surface)',
       border: '1px solid var(--border)',
-      borderRadius: 6, fontSize: 12, color: 'var(--ink-2)',
+      borderRadius: 10, fontSize: 12, color: 'var(--ink-2)',
       cursor: 'pointer',
     }}>
       <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{label}</span>
@@ -393,7 +423,7 @@ export function FilterSelect({ label, value, options, onChange }: {
           background: 'transparent', border: 'none', outline: 'none',
           fontFamily: 'inherit', fontSize: 12, color: 'var(--ink)', fontWeight: 500,
           paddingRight: 14,
-          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%237A7568' stroke-width='2.5' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>")`,
+          backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>")`,
           backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0 center',
           cursor: 'pointer',
         }}
@@ -427,9 +457,9 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', width 
         onChange={e => onChange && onChange(e.target.value)}
         placeholder={placeholder}
         style={{
-          width: '100%', padding: '6px 10px 6px 30px',
-          fontFamily: 'inherit', fontSize: 12.5,
-          border: '1px solid var(--border)', borderRadius: 6,
+          width: '100%', padding: '9px 12px 9px 32px',
+          fontFamily: 'inherit', fontSize: 13,
+          border: '1px solid var(--border)', borderRadius: 10,
           background: 'var(--surface)', color: 'var(--ink)',
           outline: 'none',
         }}
@@ -440,23 +470,116 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', width 
   );
 }
 
+// Friendly, saturated palette for app identity (avatars + GatewayCard headers).
+export const APP_PALETTE = ['#4F7CF7', '#1FB563', '#7C5CF5', '#F59E0B', '#E8559B', '#0EA5E9', '#F97316', '#14B8A6'];
+
+export function appColor(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return APP_PALETTE[h % APP_PALETTE.length];
+}
+
 export function AppAvatar({ name, size = 28 }: { name: string; size?: number }) {
-  const colors: Record<string, { from: string; to: string }> = {
-    Savi:     { from: '#3D5BA9', to: '#5E7BC8' },
-    CourtHub: { from: '#5851B0', to: '#7A72C8' },
-    Vehikol:  { from: '#2F7D52', to: '#4E9C73' },
-    Lumen:    { from: '#B6781F', to: '#D89B3C' },
-  };
-  const c = colors[name] || { from: '#3A372F', to: '#7A7568' };
+  const c = appColor(name || '?');
   const letter = (name || '?')[0];
   return (
     <div style={{
-      width: size, height: size, borderRadius: size * 0.28,
-      background: `linear-gradient(135deg, ${c.from}, ${c.to})`,
-      color: '#fff', fontWeight: 600, fontSize: size * 0.42,
+      width: size, height: size, borderRadius: size * 0.3,
+      background: c,
+      color: '#fff', fontWeight: 700, fontSize: size * 0.42,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexShrink: 0,
       letterSpacing: -0.3,
-    }}>{letter}</div>
+    }}>{letter.toUpperCase()}</div>
+  );
+}
+
+export type GatewayRow = { label: string; value: ReactNode };
+
+/**
+ * The colourful "gateway" card: brand-coloured header strip with an icon tile
+ * and title, then label/value rows, then an optional full-width action and a
+ * small centred link. Used for providers, payment methods and apps.
+ */
+export function GatewayCard({ color, icon, title, subtitle, badge, rows, action, link, onClick, compact }: {
+  color: string;
+  icon: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  badge?: ReactNode;
+  rows: GatewayRow[];
+  action?: { label: string; onClick: () => void };
+  link?: { label: string; onClick: () => void };
+  onClick?: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={onClick ? 'lift' : undefined}
+      onClick={onClick}
+      style={{
+        background: 'var(--surface)', borderRadius: 'var(--radius)',
+        boxShadow: 'var(--shadow-1)', border: '1px solid var(--hairline)',
+        overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        cursor: onClick ? 'pointer' : 'default', minWidth: 0,
+      }}
+    >
+      <div className="gw-pattern" style={{
+        background: color, padding: compact ? '12px 14px' : '16px 16px',
+        display: 'flex', alignItems: 'center', gap: 11, color: '#fff', minHeight: compact ? 0 : 66,
+      }}>
+        <div style={{
+          width: compact ? 30 : 36, height: compact ? 30 : 36, borderRadius: 10,
+          background: 'rgba(255,255,255,0.22)', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>{icon}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: compact ? 14 : 16, fontWeight: 700, letterSpacing: -0.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 11.5, opacity: 0.85, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>}
+        </div>
+        {badge}
+      </div>
+      <div style={{ padding: compact ? '4px 14px' : '6px 16px', flex: 1 }}>
+        {rows.map((r, i) => (
+          <div key={r.label} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+            padding: compact ? '9px 0' : '11px 0',
+            borderBottom: i < rows.length - 1 ? '1px solid var(--hairline)' : 'none',
+          }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{r.label}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', textAlign: 'right', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+      {(action || link) && (
+        <div onClick={(e) => e.stopPropagation()} style={{ padding: '4px 16px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, cursor: 'default' }}>
+          {action && (
+            <Button variant="block" size="sm" onClick={() => { action.onClick(); }}>
+              {action.label}
+            </Button>
+          )}
+          {link && (
+            <button
+              onClick={(e) => { e.stopPropagation(); link.onClick(); }}
+              style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--accent)', fontWeight: 600, cursor: 'pointer' }}
+            >{link.label}</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** White pill for use inside a GatewayCard header. */
+export function HeaderPill({ children, dot }: { children: ReactNode; dot?: string }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+      background: '#fff', color: 'var(--ink)', borderRadius: 999,
+      padding: '3px 9px', fontSize: 11, fontWeight: 650,
+    }}>
+      {dot && <span className="pulse-dot" style={{ width: 6, height: 6, borderRadius: 6, background: dot }} />}
+      {children}
+    </span>
   );
 }

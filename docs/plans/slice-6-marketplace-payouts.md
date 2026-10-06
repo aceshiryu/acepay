@@ -209,6 +209,28 @@ Use a **Development API key** (`xnd_development_…`). Payouts in test mode move
 - **BooklyPH: 12%** of the booking price, with a **10% founding-coach rate** that has an end date. Other apps: decided when each is onboarded.
 - Merchants pay Xendit's payment fee (invoice is created on their sub-account).
 
+## App self-service config (added 2026-10-04)
+
+- `GET /v1/app/config` and `PATCH /v1/app/config` let an app change its own default platform fee and minimum
+  payout with its API key.
+- **Guardrail:** the fee can only move inside an operator-set range (`apps.marketplace_fee_min_percent` /
+  `_max_percent`). With no range, the fee is operator-only. Enabling marketplace mode, the range itself, and
+  coach overrides stay operator-only.
+- **Audit:** every change, app or admin, goes to `app_config_changes` (field, old → new, admin email or API
+  key prefix), shown on the admin Marketplace page. Migration `1747001000000-AppConfigSelfService`.
+
+## Defaults for new apps (added 2026-10-05)
+
+- `platform_settings` row `marketplace_defaults` holds what a newly registered app starts with: marketplace
+  on/off, fee %, the fee range the app may self-serve within, and the minimum payout. Edit it at
+  `GET`/`PUT /admin/marketplace/defaults` (admin Marketplace page). Migration `1747001100000-PlatformSettings`
+  seeds it **off, with no fee** (₱500 minimum payout), so the operator picks the default fee.
+- `AppsService.create` **copies** the defaults onto each new app, and logs the starting values in
+  `app_config_changes` as `platform defaults`. They are not a live global: changing the defaults never
+  changes existing apps, so BooklyPH keeps its 12%.
+- Every app (not just BooklyPH) can use `GET`/`PATCH /v1/app/config` with its own API key, within its own
+  fee range.
+
 ## Open decisions
 
 1. Who pays Xendit's payout fee — working assumption: the merchant (deducted from each payout), consistent

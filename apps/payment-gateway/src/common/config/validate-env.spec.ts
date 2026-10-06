@@ -50,6 +50,12 @@ describe('validateEnv', () => {
       .toThrow(/No payment provider configured/);
   });
 
+  it('accepts a Xendit Business ID as the platform account, and refuses anything else', () => {
+    expect(() => validateEnv(baseEnv({ XENDIT_PLATFORM_ACCOUNT_ID: '69a27e4e24dfbfbc12345678' }))).not.toThrow();
+    expect(() => validateEnv(baseEnv({ XENDIT_PLATFORM_ACCOUNT_ID: '' }))).not.toThrow();
+    expect(() => validateEnv(baseEnv({ XENDIT_PLATFORM_ACCOUNT_ID: 'acct_123' }))).toThrow(/Business ID/);
+  });
+
   it('accepts Lemon Squeezy alone as the provider', () => {
     expect(() => validateEnv(baseEnv({ XENDIT_SECRET_KEY: undefined, LEMONSQUEEZY_API_KEY: 'ls_key' })))
       .not.toThrow();

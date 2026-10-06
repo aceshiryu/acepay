@@ -126,7 +126,8 @@ export class TransactionsAdminService {
     if (filters.search) {
       const q = `%${filters.search.toLowerCase()}%`;
       qb.andWhere(new Brackets((b) => {
-        b.where('LOWER(tx.id::text) LIKE :q', { q })
+        b.where('LOWER(tx.code) LIKE :q', { q })
+          .orWhere('LOWER(tx.id::text) LIKE :q', { q })
           .orWhere('LOWER(customer.name) LIKE :q', { q })
           .orWhere('LOWER(customer.email) LIKE :q', { q })
           .orWhere('LOWER(tx.description) LIKE :q', { q });

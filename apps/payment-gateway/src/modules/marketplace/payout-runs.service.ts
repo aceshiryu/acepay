@@ -196,12 +196,12 @@ export class PayoutRunsService {
     const byId = new Map(merchants.map((m) => [m.id, m]));
 
     const retries: Payout[] = [];
-    const notRetried: Array<{ payoutId: string; reason: string }> = [];
+    const notRetried: Array<{ payoutId: string; payoutCode: string; reason: string }> = [];
     for (const p of candidates) {
       const m = byId.get(p.merchantId);
       if (!m || m.status !== MerchantStatus.Active || !m.xenditAccountId
         || !m.payoutChannelCode || !m.payoutAccountNumber || !m.payoutAccountHolderName) {
-        notRetried.push({ payoutId: p.id, reason: 'merchant_not_payable' });
+        notRetried.push({ payoutId: p.id, payoutCode: p.code, reason: 'merchant_not_payable' });
         continue;
       }
       retries.push(this.payouts.create({
@@ -288,15 +288,17 @@ export class PayoutRunsService {
 
   async exportCsv(runId: string): Promise<string> {
     const d = await this.detail(runId);
+    // Display codes, not UUIDs. retry_of points at a payout in the same run.
+    const codeById = new Map(d.payouts.map((p) => [p.id, p.code]));
     const header = [
-      'run_id', 'payout_id', 'app', 'merchant', 'external_ref', 'channel', 'account_number',
+      'run', 'payout', 'app', 'merchant', 'external_ref', 'channel', 'account_number',
       'account_holder', 'amount', 'currency', 'status', 'failure_code', 'failure_message',
       'xendit_payout_id', 'retry_of', 'sent_at', 'completed_at',
     ];
     const rows = d.payouts.map((p) => [
-      d.id, p.id, p.appName, p.merchantName, p.merchantExternalRef, p.channelCode, p.accountNumber,
+      d.code, p.code, p.appName, p.merchantName, p.merchantExternalRef, p.channelCode, p.accountNumber,
       p.accountHolderName, ((p.amount as number) / 100).toFixed(2), p.currency, p.status, p.failureCode,
-      p.failureMessage, p.xenditPayoutId, p.retryOf, iso(p.sentAt), iso(p.completedAt),
+      p.failureMessage, p.xenditPayoutId, p.retryOf ? codeById.get(p.retryOf) ?? null : null, iso(p.sentAt), iso(p.completedAt),
     ]);
     return [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
   }

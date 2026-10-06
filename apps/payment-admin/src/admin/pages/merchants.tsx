@@ -117,7 +117,7 @@ export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Search name, email or ref…" width={260} />
+        <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Search code, name, email or ref…" width={260} />
         <Icon name="filter" size={13} color="var(--muted)" style={{ marginLeft: 4 }} />
         <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }} options={appOptions} />
         <FilterSelect label="Status" value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} options={[
@@ -297,7 +297,7 @@ export function MerchantDetailPage({ merchantId, onNavigate, onBack }: {
                 </span>
               } />
               <KV k="App's reference" v={<span className="mono">{m.externalRef}</span>} />
-              <KV k="AcePay ID" v={<span className="mono">{m.id}</span>} />
+              <KV k="AcePay code" v={<span className="mono">{m.code}</span>} />
               <KV k="Xendit account" v={<span className="mono">{m.xenditAccountId ?? 'Not created yet'}</span>} />
               <KV k="Xendit status" v={m.xenditAccountStatus ?? '—'} />
               <KV k="Added" v={formatDateTime(m.createdAt)} />
@@ -575,7 +575,7 @@ function PayoutHistoryCard({ merchantId, onNavigate }: { merchantId: string; onN
                 </div>
               )},
               { key: 'run', label: 'Run', align: 'right', render: (r) => r.runId ? (
-                <span className="mono" style={{ color: 'var(--accent)', fontSize: 11.5 }}>{r.runId.slice(0, 8)}…</span>
+                <span className="mono" style={{ color: 'var(--accent)', fontSize: 11.5 }}>{r.runCode ?? '—'}</span>
               ) : '—' },
             ]}
             rows={list.data.data}

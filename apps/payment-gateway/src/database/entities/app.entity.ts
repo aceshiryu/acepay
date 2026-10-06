@@ -7,11 +7,16 @@ import { Customer } from './customer.entity';
 import { Plan } from './plan.entity';
 import { Subscription } from './subscription.entity';
 import { Transaction } from './transaction.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('apps')
 export class App {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('apps'))
+  code!: string;
 
   @Column({ length: 120 })
   name!: string;
@@ -79,9 +84,44 @@ export class App {
   })
   marketplaceFeePercent?: number | null;
 
+  /** Range the APP may set its own fee within via PATCH /v1/app/config. Both
+   *  null = the app can't change its fee at all (operator-only). Guards against
+   *  a leaked API key zeroing the platform fee. */
+  @Column({
+    name: 'marketplace_fee_min_percent', type: 'numeric', precision: 5, scale: 2, nullable: true,
+    transformer: numericTransformer,
+  })
+  marketplaceFeeMinPercent?: number | null;
+
+  @Column({
+    name: 'marketplace_fee_max_percent', type: 'numeric', precision: 5, scale: 2, nullable: true,
+    transformer: numericTransformer,
+  })
+  marketplaceFeeMaxPercent?: number | null;
+
   /** Merchants whose payable balance is below this roll over to the next run. Minor units. */
   @Column({ name: 'marketplace_min_payout', type: 'int', default: 50000 })
   marketplaceMinPayout!: number;
+
+  /**
+   * The payment methods this app's checkouts offer (Xendit codes, e.g. GCASH,
+   * QRPH). NULL = every method the Xendit account has switched on. Sent with
+   * each checkout, because Xendit's dashboard setting does not reach the
+   * sub-accounts marketplace payments go through.
+   */
+  @Column({ name: 'payment_methods', type: 'text', array: true, nullable: true })
+  paymentMethods?: string[] | null;
+
+  // ─── Setup checks ────────────────────────────────────────────────────────
+  /** The last "Send test webhook": when, whether the app answered 2xx, and what happened. */
+  @Column({ name: 'last_ping_at', type: 'timestamptz', nullable: true })
+  lastPingAt?: Date | null;
+
+  @Column({ name: 'last_ping_ok', type: 'boolean', nullable: true })
+  lastPingOk?: boolean | null;
+
+  @Column({ name: 'last_ping_detail', type: 'varchar', length: 300, nullable: true })
+  lastPingDetail?: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

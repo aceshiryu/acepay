@@ -27,6 +27,7 @@ export class ActivityLogsAdminService {
       qb.andWhere(new Brackets((b) => {
         b.where('LOWER(log.action::text) LIKE :q', { q })
           .orWhere('LOWER(log.provider_event_id) LIKE :q', { q })
+          .orWhere('LOWER(tx.code) LIKE :q', { q })
           .orWhere('LOWER(log.transaction_id::text) LIKE :q', { q });
       }));
     }

@@ -165,9 +165,9 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
   // double-charge history and re-notify the app.
   describe('idempotency', () => {
     it('short-circuits a duplicate event without touching any state', async () => {
-      webhooks.findOne.mockResolvedValue({ id: 'existing-evt' });
+      webhooks.findOne.mockResolvedValue({ id: 'existing-evt', code: 'EVT-000042' });
       const res = await service.handle(Provider.Lemonsqueezy, BODY, 'sig');
-      expect(res).toEqual({ duplicate: true, eventId: 'existing-evt' });
+      expect(res).toEqual({ duplicate: true, eventId: 'existing-evt', eventCode: 'EVT-000042' });
       expect(transactions.save).not.toHaveBeenCalled();
       expect(webhooks.save).not.toHaveBeenCalled();
       expect(deliveryQueue.enqueue).not.toHaveBeenCalled();
@@ -259,6 +259,18 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
       expect(t.status).toBe(TransactionStatus.Succeeded);
       expect(t.webhookReceivedAt).toBeInstanceOf(Date);
       expect(transactions.save).toHaveBeenCalledWith(t);
+    });
+
+    it('records how it was paid, and tells the app whether it can be refunded online', async () => {
+      const t = tx({ status: TransactionStatus.Pending });
+      transactions.findOne.mockResolvedValue(t);
+      adapter.normalizeEvent.mockReturnValue(paymentEvent({ raw: { payment_channel: 'QRPH', payment_method: 'QR_CODE' } }));
+      await service.handle(Provider.Lemonsqueezy, BODY, 'sig');
+      expect(t.paymentChannel).toBe('QRPH');
+      expect(webhooks.create.mock.calls[0][0].normalizedPayload).toMatchObject({
+        payment_channel: 'QRPH',
+        refundable_online: false,
+      });
     });
 
     it('does nothing when the status already matches', async () => {
@@ -466,7 +478,7 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
       adapter.normalizeEvent.mockReturnValue(subEvent());
       subscriptions.findOne.mockResolvedValue(null);
       const res = await service.handle(Provider.Lemonsqueezy, BODY, 'sig');
-      expect(res).toEqual({ duplicate: false, eventId: null, reason: 'no_app_match' });
+      expect(res).toEqual({ duplicate: false, eventId: null, eventCode: null, reason: 'no_app_match' });
     });
 
     describe('subscription payment transactions', () => {
@@ -945,7 +957,7 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
     it('drops an event that cannot be attributed to an app', async () => {
       transactions.findOne.mockResolvedValue(null);
       const res = await service.handle(Provider.Lemonsqueezy, BODY, 'sig');
-      expect(res).toEqual({ duplicate: false, eventId: null, reason: 'no_app_match' });
+      expect(res).toEqual({ duplicate: false, eventId: null, eventCode: null, reason: 'no_app_match' });
       expect(webhooks.save).not.toHaveBeenCalled();
       expect(deliveryQueue.enqueue).not.toHaveBeenCalled();
     });

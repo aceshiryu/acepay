@@ -94,7 +94,8 @@ export class CustomersAdminService {
     if (filters.search) {
       const q = `%${filters.search.toLowerCase()}%`;
       qb.andWhere(new Brackets((b) => {
-        b.where('LOWER(cust.name) LIKE :q', { q })
+        b.where('LOWER(cust.code) LIKE :q', { q })
+          .orWhere('LOWER(cust.name) LIKE :q', { q })
           .orWhere('LOWER(cust.email) LIKE :q', { q })
           .orWhere('LOWER(cust.external_id) LIKE :q', { q });
       }));

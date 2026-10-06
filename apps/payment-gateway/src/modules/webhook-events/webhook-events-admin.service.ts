@@ -106,6 +106,8 @@ export class WebhookEventsAdminService {
       const q = `%${filters.search.toLowerCase()}%`;
       qb.andWhere(new Brackets((b) => {
         b.where('LOWER(evt.event_type) LIKE :q', { q })
+          .orWhere('LOWER(evt.code) LIKE :q', { q })
+          .orWhere('LOWER(tx.code) LIKE :q', { q })
           .orWhere('LOWER(evt.id::text) LIKE :q', { q })
           .orWhere('LOWER(evt.transaction_id::text) LIKE :q', { q })
           .orWhere('LOWER(evt.provider_event_id) LIKE :q', { q });

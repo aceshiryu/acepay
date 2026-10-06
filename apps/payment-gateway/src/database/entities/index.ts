@@ -10,3 +10,5 @@ export { Merchant } from './merchant.entity';
 export { Payout } from './payout.entity';
 export { PayoutRun } from './payout-run.entity';
 export { XenditSplitRule } from './xendit-split-rule.entity';
+export { AppConfigChange } from './app-config-change.entity';
+export { PlatformSetting } from './platform-setting.entity';

@@ -2,7 +2,7 @@ jest.mock('../../database/entities', () => ({
   App: class App {}, Customer: class Customer {}, Plan: class Plan {}, Subscription: class Subscription {},
   Transaction: class Transaction {}, TransactionLog: class TransactionLog {}, User: class User {},
   WebhookEvent: class WebhookEvent {}, Merchant: class Merchant {}, Payout: class Payout {},
-  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {},
+  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {}, PlatformSetting: class PlatformSetting {},
 }));
 
 import { BadRequestException } from '@nestjs/common';

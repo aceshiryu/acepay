@@ -7,6 +7,7 @@ import { App } from './app.entity';
 import { Customer } from './customer.entity';
 import { Plan } from './plan.entity';
 import { Transaction } from './transaction.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('subscriptions')
 // Same shape as uq_tx_app_idem on transactions: a retry of the same create call
@@ -15,6 +16,10 @@ import { Transaction } from './transaction.entity';
 export class Subscription {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('subscriptions'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })

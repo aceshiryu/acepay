@@ -45,18 +45,24 @@ export default function LoginPage() {
       padding: 24,
     }}>
       <div style={{
-        width: '100%', maxWidth: 380,
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-2)',
-        padding: 32,
+        width: '100%', maxWidth: 400,
+        background: 'var(--surface)', border: '1px solid var(--hairline)',
+        borderRadius: 16, boxShadow: 'var(--shadow-2)',
+        overflow: 'hidden',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
-          <AceLogo size={28} />
+        <div className="gw-pattern" style={{
+          background: 'var(--accent)', color: '#fff', padding: '22px 28px',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 6, display: 'flex' }}>
+            <AceLogo size={22} />
+          </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 17, letterSpacing: -0.2 }}>AcePay</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Admin sign-in</div>
+            <div style={{ fontWeight: 700, fontSize: 18, letterSpacing: -0.3 }}>AcePay</div>
+            <div style={{ fontSize: 12, opacity: 0.85 }}>Sign in to manage your payment gateway</div>
           </div>
         </div>
+        <div style={{ padding: 28 }}>
 
         <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="Email">
@@ -87,7 +93,7 @@ export default function LoginPage() {
             <div style={{
               padding: '8px 11px',
               background: 'var(--bad-soft)', color: 'var(--bad)',
-              borderRadius: 6, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8,
+              borderRadius: 10, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8,
             }}>
               <Icon name="warn" size={13} color="var(--bad)" />
               {error}
@@ -102,6 +108,7 @@ export default function LoginPage() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+        </div>
       </div>
     </div>
   );

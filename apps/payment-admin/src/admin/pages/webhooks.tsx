@@ -37,7 +37,7 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
     <PageShell
       title="Webhook Events"
       breadcrumbs={[{ label: 'Operations' }, { label: 'Webhook Events' }]}
-      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search event id, type, tx id…', width: 280 }}
+      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search event code, type, transaction…', width: 280 }}
     >
       <GuardedView
         state={stats}
@@ -71,14 +71,14 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
           <>
             <Table<WebhookEvent>
               columns={[
-                { key: 'id', label: 'Event ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.id.slice(0, 8)}…</span> },
+                { key: 'id', label: 'Event ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
                   </span>
                 )},
                 { key: 'tx', label: 'Transaction', render: (r) => r.transactionId
-                  ? <span className="mono" style={{ color: 'var(--accent)' }}>{r.transactionId.slice(0, 8)}…</span>
+                  ? <span className="mono" style={{ color: 'var(--accent)' }}>{r.transaction?.code ?? '—'}</span>
                   : '—' },
                 { key: 'provider', label: 'Provider', render: (r) => <ProviderTag name={r.provider} size="sm" /> },
                 { key: 'type', label: 'Event Type', render: (r) => <span className="mono" style={{ color: 'var(--ink-2)' }}>{r.eventType}</span> },
@@ -151,15 +151,15 @@ export function WebhookDetailPage({ evtId, onNavigate, onBack }: { evtId: string
     <PageShell
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-          <span className="mono" style={{ fontSize: 19 }}>{evt.id.slice(0, 12)}…</span>
+          <span className="mono" style={{ fontSize: 19 }}>{evt.code}</span>
           <StatusBadge status={evt.deliveryStatus} />
         </span>
       }
-      breadcrumbs={[{ label: 'Webhook Events', onClick: onBack }, { label: evt.id.slice(0, 12) }]}
+      breadcrumbs={[{ label: 'Webhook Events', onClick: onBack }, { label: evt.code }]}
       actions={
         <>
           <Button variant="secondary" size="md" leading={<Icon name="copy" size={12} />}
-            onClick={() => navigator.clipboard?.writeText(evt.id)}>Copy ID</Button>
+            onClick={() => navigator.clipboard?.writeText(evt.code)}>Copy code</Button>
           <Button variant="primary" size="md" leading={<Icon name="refresh" size={12} />}
             onClick={async () => { await api.webhookEvents.retry(evt.id); evtQ.refetch(); }}>
             Retry Now
@@ -177,7 +177,7 @@ export function WebhookDetailPage({ evtId, onNavigate, onBack }: { evtId: string
         <DetailMicro label="App" value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><AppAvatar name={evt.app?.name ?? '?'} size={16} />{evt.app?.name ?? '—'}</span>} />
         <DetailMicro label="Transaction" value={evt.transactionId ?
           <span className="mono" style={{ color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }} onClick={() => onNavigate('transaction-detail', evt.transactionId!)}>
-            {evt.transactionId.slice(0, 8)}…
+            {evt.transaction?.code ?? '—'}
           </span> : '—'} />
         <DetailMicro label="Provider" value={<ProviderTag name={evt.provider} size="sm" />} />
         <DetailMicro label="Attempts" value={
@@ -191,7 +191,7 @@ export function WebhookDetailPage({ evtId, onNavigate, onBack }: { evtId: string
       <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16 }}>
         <Card title="Identification" padding={0}>
           <div style={{ padding: '4px 16px 14px' }}>
-            <KV k="Event ID" v={<span className="mono">{evt.id}</span>} />
+            <KV k="Event code" v={<span className="mono">{evt.code}</span>} />
             <KV k="Provider Event ID" v={<span className="mono">{evt.providerEventId}</span>} mono />
             <KV k="Event Type" v={<span className="mono">{evt.eventType}</span>} />
             <KV k="Received At" v={formatDateTime(evt.createdAt)} />

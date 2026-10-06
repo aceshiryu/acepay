@@ -4,6 +4,7 @@ import {
 } from 'typeorm';
 import { PayoutRunStatus } from '../../common/enums';
 import { App } from './app.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 export interface ExcludedMerchant {
   merchantId: string;
@@ -26,6 +27,10 @@ export interface ExcludedMerchant {
 export class PayoutRun {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('payout_runs'))
+  code!: string;
 
   /** Optional filter: only this app's merchants. Null = every marketplace app. */
   @Index()

@@ -97,9 +97,9 @@ function ProviderHealthCard({ p, baseUrl, onSimulated }: {
     try {
       const r = await api.settings.simulateWebhook({ provider: p.provider });
       setSimResult(r.result.duplicate
-        ? `✓ Handler ran (duplicate of event ${r.result.eventId})`
+        ? `✓ Handler ran (duplicate of event ${r.result.eventCode})`
         : r.result.eventId
-        ? `✓ Handler ran. Webhook event ${r.result.eventId} persisted.`
+        ? `✓ Handler ran. Webhook event ${r.result.eventCode} persisted.`
         : `✓ Handler ran but no app matched. Reason: ${r.result.reason ?? 'unknown'}`);
       onSimulated();
     } catch (err) {

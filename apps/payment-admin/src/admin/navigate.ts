@@ -10,6 +10,7 @@ import { Navigate, RoutePage } from './types';
  */
 const PAGE_TO_PATH: Record<RoutePage, (param?: string | null, ctx?: string | null) => string> = {
   dashboard:             ()           => '/dashboard',
+  gateways:              ()           => '/gateways',
   apps:                  ()           => '/apps',
   'app-detail':          (id)         => `/apps/${id ?? ''}`,
   'register-app':        ()           => '/apps/register',

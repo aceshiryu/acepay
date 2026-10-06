@@ -54,7 +54,9 @@ async function bootstrap() {
     },
     credentials: false,
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    // PUT is used by the marketplace admin (app settings + defaults) — leaving
+    // it out fails the browser preflight for those saves only.
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   app.useGlobalPipes(

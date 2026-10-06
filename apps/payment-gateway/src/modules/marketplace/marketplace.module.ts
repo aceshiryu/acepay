@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
+import { AppConfigAppController } from './app-config-app.controller';
 import { MarketplaceAdminController } from './marketplace-admin.controller';
 import { MarketplaceCoreModule } from './marketplace-core.module';
 import { MarketplacePaymentsAppController } from './marketplace-payments-app.controller';
@@ -10,6 +11,7 @@ import { MerchantsAppController } from './merchants-app.controller';
 @Module({
   imports: [AuthModule, MarketplaceCoreModule],
   controllers: [
+    AppConfigAppController,
     MerchantsAppController,
     MarketplacePaymentsAppController,
     MarketplaceAdminController,

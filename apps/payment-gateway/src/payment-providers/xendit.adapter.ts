@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Xendit } from 'xendit-node';
@@ -358,7 +359,7 @@ export class XenditAdapter implements PaymentProvider {
     // Xendit doesn't HMAC-sign webhooks — it sends a static token in
     // x-callback-token that you compare against your configured value.
     if (!signature) throw new Error('Missing x-callback-token header');
-    if (signature !== this.webhookToken()) {
+    if (!sameToken(signature, this.webhookToken())) {
       throw new Error('Invalid Xendit webhook token');
     }
     return JSON.parse(rawBody.toString('utf8')) as XenditInvoiceWebhook;
@@ -524,4 +525,15 @@ function mapInvoiceToFetched(invoice: {
     providerCompletedAt: completed,
     raw: invoice as unknown as Record<string, unknown>,
   };
+}
+
+/**
+ * Constant-time token compare, so the response time never reveals how much of
+ * a guessed token was right. Both sides are hashed first: timingSafeEqual
+ * needs equal lengths, and comparing lengths directly would leak the length.
+ */
+export function sameToken(given: string, expected: string): boolean {
+  const a = createHash('sha256').update(given).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
 }

@@ -91,7 +91,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
           <>
             <Table<PayoutRun>
               columns={[
-                { key: 'id', label: 'Run', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.id.slice(0, 8)}…</span> },
+                { key: 'id', label: 'Run', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
                 { key: 'app', label: 'App', render: (r) => r.appId ? (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -261,11 +261,11 @@ export function PayoutRunDetailPage({ runId, onNavigate, onBack }: {
     <PageShell
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-          <span>Payout run <span className="mono" style={{ fontSize: 17 }}>{run.id.slice(0, 8)}…</span></span>
+          <span>Payout run <span className="mono" style={{ fontSize: 17 }}>{run.code}</span></span>
           <StatusBadge status={run.status} />
         </span>
       }
-      breadcrumbs={[...crumbs, { label: run.id.slice(0, 8) }]}
+      breadcrumbs={[...crumbs, { label: run.code }]}
       actions={
         <>
           {showExport && (
@@ -483,7 +483,7 @@ function SentView({ run, onRunChange, onRefresh }: {
   const [syncing, setSyncing] = React.useState<string | null>(null);
   const [rowError, setRowError] = React.useState<Record<string, string>>({});
   const [retrying, setRetrying] = React.useState(false);
-  const [retryResult, setRetryResult] = React.useState<{ retried: number; notRetried: Array<{ payoutId: string; reason: string }> } | null>(null);
+  const [retryResult, setRetryResult] = React.useState<{ retried: number; notRetried: Array<{ payoutId: string; payoutCode: string; reason: string }> } | null>(null);
   const [retryError, setRetryError] = React.useState<string | null>(null);
 
   const c = run.counts;
@@ -522,12 +522,12 @@ function SentView({ run, onRunChange, onRefresh }: {
     }
   };
 
-  const merchantName = (payoutId: string) =>
-    run.payouts.find((p) => p.id === payoutId)?.merchantName ?? payoutId.slice(0, 8);
+  const merchantName = (payoutId: string, payoutCode: string) =>
+    run.payouts.find((p) => p.id === payoutId)?.merchantName ?? payoutCode;
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 16 }}>
         <MiniStatCard label="Sent" value={run.payoutCount} sub={php(run.totalAmount, run.currency)} />
         <MiniStatCard label="On the way" value={sum(waitingKeys, c)} sub={php(sum(waitingKeys, a), run.currency)} />
         <MiniStatCard label="Succeeded" value={c.succeeded ?? 0} sub={php(a.succeeded ?? 0, run.currency)} />
@@ -551,7 +551,7 @@ function SentView({ run, onRunChange, onRefresh }: {
               {retryResult.notRetried.length > 0 && (
                 <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                   {retryResult.notRetried.map((n) => (
-                    <li key={n.payoutId}>Not re-sent — {merchantName(n.payoutId)}: {n.reason}</li>
+                    <li key={n.payoutId}>Not re-sent — {merchantName(n.payoutId, n.payoutCode)}: {n.reason}</li>
                   ))}
                 </ul>
               )}

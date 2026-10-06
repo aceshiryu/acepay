@@ -139,6 +139,53 @@ export class MarketplaceSettingsDto {
   @IsInt()
   @Min(0)
   minPayout?: number;
+
+  @ApiPropertyOptional({
+    example: 10, nullable: true,
+    description: 'Lowest fee % the app may set for itself via PATCH /v1/app/config. Set with feeMaxPercent; both null = app cannot change its fee.',
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feeMinPercent?: number | null;
+
+  @ApiPropertyOptional({ example: 15, nullable: true, description: 'Highest fee % the app may set for itself' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feeMaxPercent?: number | null;
+}
+
+/** What an app may change about itself with its own API key. */
+export class UpdateAppConfigDto {
+  @ApiPropertyOptional({
+    example: 12,
+    description: 'Default platform fee % for new payments. Must be inside the range the AcePay operator allowed.',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feePercent?: number;
+
+  @ApiPropertyOptional({ example: 50000, description: 'Minimum payout, minor units (₱500 = 50000). Up to ₱1,000,000.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000)
+  minPayout?: number;
+}
+
+export class ListConfigChangesDto extends PaginationDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  appId?: string;
 }
 
 export class ChannelsQueryDto {

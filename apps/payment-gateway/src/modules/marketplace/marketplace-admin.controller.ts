@@ -6,8 +6,11 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { User } from '../../database/entities';
 import {
-  ChannelsQueryDto, ListMerchantsAdminDto, MarketplaceSettingsDto, UpdateMerchantAdminDto,
+  ChannelsQueryDto, ListConfigChangesDto, ListMerchantsAdminDto, MarketplaceSettingsDto,
+  UpdateMerchantAdminDto,
 } from './dto/merchant.dto';
+import { AppConfigService } from './app-config.service';
+import { MarketplaceDefaultsService } from './marketplace-defaults.service';
 import {
   ConfirmPayoutRunDto, CreatePayoutRunDto, ListPayoutRunsDto, ListPayoutsDto,
 } from './dto/payout-run.dto';
@@ -24,6 +27,8 @@ export class MarketplaceAdminController {
     private readonly admin: MarketplaceAdminService,
     private readonly merchants: MerchantsService,
     private readonly runs: PayoutRunsService,
+    private readonly appConfig: AppConfigService,
+    private readonly defaults: MarketplaceDefaultsService,
   ) {}
 
   // ── Settings + reporting ───────────────────────────────────────────
@@ -35,9 +40,34 @@ export class MarketplaceAdminController {
   }
 
   @Put('apps/:id/marketplace')
-  @ApiOperation({ summary: "Enable/disable marketplace payments for an app and set its fee + minimum payout" })
-  updateSettings(@Param('id', ParseUUIDPipe) id: string, @Body() dto: MarketplaceSettingsDto) {
-    return this.admin.updateSettings(id, dto);
+  @ApiOperation({ summary: 'Enable/disable marketplace payments; set the fee, minimum payout, and the fee range the app may choose within' })
+  updateSettings(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarketplaceSettingsDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.admin.updateSettings(id, dto, user.email);
+  }
+
+  @Get('marketplace/defaults')
+  @ApiOperation({ summary: 'Marketplace settings that newly registered apps start with' })
+  getDefaults() {
+    return this.defaults.get();
+  }
+
+  @Put('marketplace/defaults')
+  @ApiOperation({
+    summary: 'Change the defaults for NEW apps',
+    description: 'Copied onto each app when it is registered. Existing apps are never changed by this.',
+  })
+  updateDefaults(@Body() dto: MarketplaceSettingsDto, @CurrentUser() user: User) {
+    return this.defaults.update(dto, user.email);
+  }
+
+  @Get('marketplace/config-changes')
+  @ApiOperation({ summary: 'Audit log of marketplace setting changes, by the operator or by the app itself' })
+  configChanges(@Query() q: ListConfigChangesDto) {
+    return this.appConfig.listChanges(q);
   }
 
   @Get('marketplace/summary')

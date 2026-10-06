@@ -5,9 +5,10 @@ import * as api from '../api/client';
 import { actionIcon, formatAmountCompact, formatRelative, formatTime, pickPrimary } from '../api/format';
 import { GuardedView, LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
-import { AppView, ProviderHealth, TransactionLog } from '../api/types';
+import { ProviderHealth, TransactionLog } from '../api/types';
 import { PageShell } from '../layout';
-import { Button, Card, Icon, ProviderTag, Sparkline, AppAvatar } from '../primitives';
+import { Button, Card, GatewayCard, HeaderPill, Icon } from '../primitives';
+import { AppCard } from '../app-card';
 import { MiniStatCard, StatCard } from '../shared';
 import { Navigate } from '../types';
 
@@ -28,7 +29,6 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <PageShell
       title="Dashboard"
-      breadcrumbs={[{ label: 'Overview' }, { label: 'Today' }]}
       actions={
         <>
           <Button variant="secondary" size="md" leading={<Icon name="refresh" size={12} />}
@@ -47,8 +47,8 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
         marginBottom: 22,
       }}>
         <div>
-          <div className="serif" style={{ fontSize: 32, color: 'var(--ink)', letterSpacing: -0.6, lineHeight: 1.1 }}>
-            Good {greetingForHour(new Date().getHours())}.
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)', letterSpacing: -0.4, lineHeight: 1.2 }}>
+            Good {greetingForHour(new Date().getHours())} 👋
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
             {dashboard.data
@@ -78,35 +78,35 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
           return (
             <>
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14,
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16, marginBottom: 16,
               }}>
                 <StatCard
                   label="Transactions Today" value={d.transactionsToday}
-                  sub="vs. yesterday" accent="var(--info)"
+                  sub="vs. yesterday" accent="#4F7CF7" icon="tx"
                   sparkData={trickle(d.transactionsToday)} big
                 />
                 <StatCard
                   label="Revenue Processed"
                   value={revenue ? formatAmountCompact(revenue.amount, revenue.currency) : '—'}
-                  sub="net of refunds" accent="var(--ok)"
+                  sub="net of refunds" accent="#1FB563" icon="wallet"
                   sparkData={trickle(revenue?.amount ?? 0)} big
                 />
                 <StatCard
                   label="Success Rate"
                   value={d.successRate != null ? `${d.successRate}%` : '—'}
                   sub={`${d.failedWebhooksPending > 0 ? d.failedWebhooksPending + ' webhooks pending' : 'all clear'}`}
-                  accent="var(--ok)"
+                  accent="#0EA5E9" icon="check"
                   sparkData={trickle(d.successRate ?? 0)} big
                 />
                 <StatCard
                   label="Active Subscriptions" value={d.activeSubscriptions}
-                  sub="recurring" accent="#5851B0"
+                  sub="recurring" accent="#7C5CF5" icon="sub"
                   sparkData={trickle(d.activeSubscriptions)} big
                 />
               </div>
 
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 22,
+                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16, marginBottom: 24,
               }}>
                 <MiniStatCard
                   label="This Week"
@@ -132,16 +132,13 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
       />
 
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 320px', gap: 14, marginBottom: 22,
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 16, marginBottom: 28,
       }}>
         <Card
           title="Recent Activity"
           subtitle="Live feed · latest events across all apps"
           action={
-            <button onClick={() => onNavigate('logs')} style={{
-              background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--accent)',
-              display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 550, cursor: 'pointer',
-            }}>
+            <button onClick={() => onNavigate('logs')} style={linkBtn}>
               View all activity <Icon name="arrow" size={11} strokeWidth={2} />
             </button>
           }
@@ -158,42 +155,38 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
           </div>
         </Card>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Card title="Provider Status" subtitle="Webhook ingestion health">
-            {providers.loading && <LoadingBlock height={70} />}
-            {providers.error && <div style={{ padding: 14, color: 'var(--bad)', fontSize: 12 }}>{providers.error.message}</div>}
-            {providers.data?.providers.map((p) => (
-              <ProviderStatusRow key={p.name} provider={p} />
-            ))}
-            <div style={{
-              padding: '10px 14px', fontSize: 11, color: 'var(--muted)',
-              display: 'flex', justifyContent: 'space-between',
-            }}>
-              <span>Auto-check on load</span>
-              <span style={{ color: providers.data?.providers.every((p) => p.status === 'ok') ? 'var(--ok)' : 'var(--warn)', fontWeight: 600 }}>
-                {providers.data?.providers.every((p) => p.status === 'ok') ? 'All systems normal' : 'Check providers'}
-              </span>
-            </div>
-          </Card>
-
-          <Card title="Apps Snapshot" subtitle="All registered apps">
-            <div style={{ padding: '6px 0' }}>
-              {apps.loading && <LoadingBlock height={120} />}
-              {apps.error && <div style={{ padding: 14, color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
-              {apps.data?.data.filter((a) => a.isActive).map((app) => (
-                <AppMiniRow key={app.id} app={app} onClick={() => onNavigate('app-detail', app.id)} />
-              ))}
-              {apps.data && apps.data.data.length === 0 && (
-                <div style={{ padding: 14, color: 'var(--muted)', fontSize: 12 }}>
-                  No apps registered. <button
-                    onClick={() => onNavigate('register-app')}
-                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', fontWeight: 550 }}
-                  >Register one →</button>
-                </div>
-              )}
-            </div>
-          </Card>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 15, fontWeight: 650 }}>Providers</div>
+            <button onClick={() => onNavigate('gateways')} style={linkBtn}>
+              All gateways <Icon name="arrow" size={11} strokeWidth={2} />
+            </button>
+          </div>
+          {providers.loading && <LoadingBlock height={140} />}
+          {providers.error && <div style={{ color: 'var(--bad)', fontSize: 12 }}>{providers.error.message}</div>}
+          {providers.data?.providers.map((p) => (
+            <ProviderCard key={p.name} provider={p} onClick={() => onNavigate('gateways')} />
+          ))}
         </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.3 }}>My apps</div>
+        <button onClick={() => onNavigate('apps')} style={linkBtn}>
+          View all apps <Icon name="arrow" size={11} strokeWidth={2} />
+        </button>
+      </div>
+      {apps.loading && <LoadingBlock height={120} />}
+      {apps.error && <div style={{ color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
+      {apps.data && apps.data.data.length === 0 && (
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+          No apps registered yet. <button onClick={() => onNavigate('register-app')} style={linkBtn}>Register one →</button>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
+        {apps.data?.data.filter((a) => a.isActive).map((app) => (
+          <AppCard key={app.id} app={app} onNavigate={onNavigate} compact />
+        ))}
       </div>
     </PageShell>
   );
@@ -217,32 +210,31 @@ function trickle(value: number): number[] {
   return arr;
 }
 
-function ProviderStatusRow({ provider }: { provider: ProviderHealth }) {
+const linkBtn: React.CSSProperties = {
+  background: 'none', border: 'none', padding: 0, fontSize: 12.5, color: 'var(--accent)',
+  display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, cursor: 'pointer',
+};
+
+function ProviderCard({ provider, onClick }: { provider: ProviderHealth; onClick: () => void }) {
   const statusInfo = {
-    ok:   { color: 'var(--ok)',   bg: 'var(--ok-soft)',   label: 'Healthy' },
-    warn: { color: 'var(--warn)', bg: 'var(--warn-soft)', label: 'Degraded' },
-    bad:  { color: 'var(--bad)',  bg: 'var(--bad-soft)',  label: 'Down' },
+    ok:   { dot: 'var(--ok)',   label: 'Healthy' },
+    warn: { dot: 'var(--warn)', label: 'Degraded' },
+    bad:  { dot: 'var(--bad)',  label: 'Down' },
   }[provider.status];
+  const isXendit = provider.name === 'xendit';
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '11px 14px', borderBottom: '1px solid var(--hairline)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <ProviderTag name={provider.name} />
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Last webhook {formatRelative(provider.lastWebhookAt)}
-        </span>
-      </div>
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5,
-        fontSize: 11.5, color: statusInfo.color, fontWeight: 600,
-        padding: '2px 8px', background: statusInfo.bg, borderRadius: 999,
-      }}>
-        <span className="pulse-dot" style={{ width: 5, height: 5, borderRadius: 5, background: statusInfo.color }} />
-        {statusInfo.label}
-      </span>
-    </div>
+    <GatewayCard
+      compact
+      color={isXendit ? 'var(--brand-xendit)' : 'var(--brand-lemon)'}
+      icon={<Icon name={isXendit ? 'wallet' : 'card'} size={16} color="#fff" strokeWidth={2} />}
+      title={isXendit ? 'Xendit' : 'Lemon Squeezy'}
+      badge={<HeaderPill dot={statusInfo.dot}>{statusInfo.label}</HeaderPill>}
+      rows={[
+        { label: 'Region', value: isXendit ? 'Philippines' : 'Global' },
+        { label: 'Last webhook', value: formatRelative(provider.lastWebhookAt) },
+      ]}
+      onClick={onClick}
+    />
   );
 }
 
@@ -256,7 +248,7 @@ function DashboardActivityRow({ row, onTxClick }: { row: TransactionLog; onTxCli
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: '78px 22px 1fr 110px 80px 130px',
+      gridTemplateColumns: '70px 22px minmax(0,1fr) 90px 80px 110px',
       gap: 12, alignItems: 'center',
       padding: '8px 12px',
       borderRadius: 6, fontSize: 12,
@@ -266,7 +258,7 @@ function DashboardActivityRow({ row, onTxClick }: { row: TransactionLog; onTxCli
     >
       <span className="mono" style={{ color: 'var(--muted)', fontSize: 11.5 }}>{formatTime(row.createdAt)}</span>
       <span style={{
-        width: 18, height: 18, borderRadius: 4, background: 'var(--surface-2)',
+        width: 20, height: 20, borderRadius: 6, background: 'var(--surface-2)',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 11, fontWeight: 600, color: iconColorMap[icon] ?? 'var(--muted)',
         border: '1px solid var(--border)',
@@ -280,33 +272,9 @@ function DashboardActivityRow({ row, onTxClick }: { row: TransactionLog; onTxCli
           color: 'var(--accent)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
           overflow: 'hidden', textOverflow: 'ellipsis',
         }}
-      >{row.transactionId.slice(0, 8)}…</button>
+      >{row.transaction?.code ?? '—'}</button>
       <span style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 500 }}>{appName}</span>
       <span className="mono" style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}>{row.actor}</span>
-    </div>
-  );
-}
-
-function AppMiniRow({ app, onClick }: { app: AppView; onClick?: () => void }) {
-  const summary = useFetch(() => api.stats.app(app.id), [app.id]);
-  const today = summary.data?.txCount ?? 0;
-  return (
-    <div onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '8px 14px', cursor: 'pointer',
-      borderBottom: '1px solid var(--hairline)',
-    }}
-      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-      onMouseLeave={e => (e.currentTarget.style.background = '')}
-    >
-      <AppAvatar name={app.name} size={22} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 550, color: 'var(--ink)' }}>{app.name}</div>
-        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-          {summary.loading ? 'loading…' : `${today} tx total`}
-        </div>
-      </div>
-      <Sparkline data={trickle(today || 5)} width={56} height={20} fill={false} color="var(--accent)" />
     </div>
   );
 }

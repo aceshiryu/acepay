@@ -2,7 +2,7 @@ jest.mock('../../database/entities', () => ({
   App: class App {}, Customer: class Customer {}, Plan: class Plan {}, Subscription: class Subscription {},
   Transaction: class Transaction {}, TransactionLog: class TransactionLog {}, User: class User {},
   WebhookEvent: class WebhookEvent {}, Merchant: class Merchant {}, Payout: class Payout {},
-  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {},
+  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {}, PlatformSetting: class PlatformSetting {},
 }));
 
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
@@ -96,6 +96,7 @@ describe('MarketplacePaymentsService (POST /v1/payments)', () => {
       payerEmail: 'student@x.com',
       successRedirectUrl: 'https://bookly.ph/ok',
       failureRedirectUrl: 'https://bookly.ph/no',
+      paymentMethods: null,
     }));
     const created = transactions.create.mock.calls[0][0];
     expect(created).toEqual(expect.objectContaining({
@@ -106,6 +107,11 @@ describe('MarketplacePaymentsService (POST /v1/payments)', () => {
     const final = saved[saved.length - 1];
     expect(final.providerTxId).toBe('inv-1');
     expect(txLogger.log.mock.calls.map((c) => c[0].action)).toEqual([LogAction.PaymentCreated, LogAction.PaymentProviderSent]);
+  });
+
+  it("offers only the app's chosen payment methods on its checkout", async () => {
+    await service.create({ ...BOOKLY, paymentMethods: ['GCASH', 'PAYMAYA', 'QRPH'] } as App, dto());
+    expect(xendit.createSplitInvoice).toHaveBeenCalledWith(expect.objectContaining({ paymentMethods: ['GCASH', 'PAYMAYA', 'QRPH'] }));
   });
 
   it('uses the founding-coach override while it runs', async () => {
@@ -176,6 +182,45 @@ describe('MarketplacePaymentsService (POST /v1/payments)', () => {
     const last = saved[saved.length - 1];
     expect(last.status).toBe(TransactionStatus.Failed);
     expect(last.splitStatus).toBeNull();
+  });
+
+  it('re-invoices the same row when a retry follows a provider_error (no Xendit invoice yet)', async () => {
+    const failed = {
+      id: 'tx-failed', appId: BOOKLY.id, merchantId: 'm-1', amount: 50000, currency: 'PHP',
+      status: TransactionStatus.Failed, providerTxId: null, splitRuleId: 'splitru_12', splitStatus: null,
+      platformFeeAmount: 6000, merchantAmount: 44000, platformFeePercent: 12, checkoutUrl: null,
+      description: 'Session', createdAt: new Date(),
+    };
+    transactions.findOne.mockResolvedValue(failed);
+    const view = await service.create(BOOKLY, dto());
+    expect(view).toEqual(expect.objectContaining({
+      id: 'tx-failed', status: TransactionStatus.Pending, checkoutUrl: 'https://checkout.xendit.co/inv-1', platformFee: 6000,
+    }));
+    expect(xendit.createSplitInvoice).toHaveBeenCalledWith(expect.objectContaining({
+      externalId: 'tx-failed', splitRuleId: 'splitru_12', forUserId: 'sub-1', amount: 50000,
+    }));
+    // One row, re-used: no second insert, no new split rule lookup.
+    expect(transactions.create).not.toHaveBeenCalled();
+    expect(splitRules.getOrCreate).not.toHaveBeenCalled();
+  });
+
+  it('replays a failed payment that Xendit did invoice (expired) instead of re-invoicing', async () => {
+    transactions.findOne.mockResolvedValue({
+      id: 'tx-expired', appId: BOOKLY.id, merchantId: 'm-1', amount: 50000, currency: 'PHP',
+      status: TransactionStatus.Failed, providerTxId: 'inv-old', checkoutUrl: 'https://old', createdAt: new Date(),
+    });
+    const view = await service.create(BOOKLY, dto());
+    expect(view).toEqual(expect.objectContaining({ id: 'tx-expired', status: TransactionStatus.Failed }));
+    expect(xendit.createSplitInvoice).not.toHaveBeenCalled();
+  });
+
+  it('a retry still refuses a merchant that is no longer active', async () => {
+    transactions.findOne.mockResolvedValue({
+      id: 'tx-failed', appId: BOOKLY.id, merchantId: 'm-1', amount: 50000, status: TransactionStatus.Failed, providerTxId: null,
+    });
+    merchants.findOwned.mockResolvedValue(merchant({ status: MerchantStatus.Paused }));
+    await expect(service.create(BOOKLY, dto())).rejects.toMatchObject({ response: { error: 'merchant_not_active' } });
+    expect(xendit.createSplitInvoice).not.toHaveBeenCalled();
   });
 
   it('returns the winner when a concurrent retry inserted the same key first', async () => {

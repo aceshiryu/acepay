@@ -1,8 +1,8 @@
 import {
-  BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
+  BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
 import { MerchantStatus, PayoutStatus } from '../../common/enums';
 import { App, Merchant, Payout } from '../../database/entities';
@@ -22,6 +22,7 @@ const PAYOUT_CURRENCY = 'PHP';
 /** What apps see. The full account number never leaves AcePay via /v1. */
 export interface MerchantView {
   id: string;
+  code: string;
   externalRef: string;
   name: string;
   email: string;
@@ -50,6 +51,11 @@ export interface MerchantBalance {
   minPayout: number;
 }
 
+/** How long after creating a sub-account to look at it again. */
+export const ACTIVATION_RECHECK_MS = 5_000;
+/** Pending sub-accounts the worker re-checks per sweep (Xendit rate limits). */
+export const ACTIVATION_SWEEP_LIMIT = 20;
+
 @Injectable()
 export class MerchantsService {
   constructor(
@@ -59,6 +65,8 @@ export class MerchantsService {
     private readonly xendit: XenditPlatformClient,
     private readonly events: MerchantEventsService,
   ) {}
+
+  private readonly logger = new Logger(MerchantsService.name);
 
   // ─── App-facing (/v1/merchants) — always scoped to the calling app ─────
 
@@ -117,7 +125,58 @@ export class MerchantsService {
       await this.merchants.delete({ id: merchant.id });
       throw err;
     }
+    // Owned sub-accounts usually turn LIVE within seconds; look again shortly
+    // so nobody has to press Sync. The worker's sweep is the safety net.
+    if (merchant.status === MerchantStatus.Pending && merchant.xenditAccountId) {
+      this.scheduleActivationCheck(merchant.id);
+    }
     return this.toView(merchant, app);
+  }
+
+  /** Looks at a just-created, still-pending sub-account again after a few seconds. Never blocks the request. */
+  scheduleActivationCheck(merchantId: string, delayMs = ACTIVATION_RECHECK_MS): void {
+    const timer = setTimeout(() => {
+      void this.recheckPending(merchantId).catch((err) =>
+        this.logger.warn(`activation re-check for merchant ${merchantId} failed: ${String(err)}`),
+      );
+    }, delayMs);
+    timer.unref?.();
+  }
+
+  /** If still pending, asks Xendit and applies what it says (LIVE → active, with merchant.activated). */
+  async recheckPending(merchantId: string): Promise<boolean> {
+    const merchant = await this.merchants.findOne({ where: { id: merchantId } });
+    if (!merchant || merchant.status !== MerchantStatus.Pending || !merchant.xenditAccountId) return false;
+    const acct = await this.xendit.getAccount(merchant.xenditAccountId);
+    await this.applyAccountStatus(merchant, acct.status, acct.raw);
+    // applyAccountStatus changed it in place.
+    return (merchant.status as MerchantStatus) === MerchantStatus.Active;
+  }
+
+  /**
+   * The worker's sweep: pending sub-accounts older than a minute, a few at a
+   * time, so an account whose account.created callback never arrived (wrong
+   * callback URL, ngrok down) still becomes active on its own.
+   */
+  async activatePending(now = new Date(), limit = ACTIVATION_SWEEP_LIMIT): Promise<{ checked: number; activated: number }> {
+    const pending = await this.merchants.find({
+      where: {
+        status: MerchantStatus.Pending,
+        xenditAccountId: Not(IsNull()),
+        createdAt: LessThan(new Date(now.getTime() - 60_000)),
+      },
+      order: { updatedAt: 'ASC' },
+      take: limit,
+    });
+    let activated = 0;
+    for (const m of pending) {
+      try {
+        if (await this.recheckPending(m.id)) activated += 1;
+      } catch (err) {
+        this.logger.warn(`activation sweep: merchant ${m.id} not checked: ${String(err)}`);
+      }
+    }
+    return { checked: pending.length, activated };
   }
 
   async list(app: App, q: ListMerchantsAppDto): Promise<Paged<MerchantView>> {
@@ -167,7 +226,7 @@ export class MerchantsService {
     if (q.status) qb.andWhere('m.status = :status', { status: q.status });
     if (q.externalRef) qb.andWhere('m.external_ref = :ref', { ref: q.externalRef });
     if (q.search) {
-      qb.andWhere('(m.name ILIKE :s OR m.email ILIKE :s OR m.external_ref ILIKE :s)', { s: `%${q.search}%` });
+      qb.andWhere('(m.code ILIKE :s OR m.name ILIKE :s OR m.email ILIKE :s OR m.external_ref ILIKE :s)', { s: `%${q.search}%` });
     }
     const page = q.page ?? 1;
     const pageSize = q.pageSize ?? 20;
@@ -208,6 +267,7 @@ export class MerchantsService {
       payoutAccountNumber: merchant.payoutAccountNumber ?? null,
       sharedWith: sharedWith.map((o) => ({
         merchantId: o.id,
+        merchantCode: o.code,
         name: o.name,
         appId: o.appId,
         appName: o.app?.name ?? null,
@@ -327,7 +387,9 @@ export class MerchantsService {
   }
 
   private async pagedPayouts(merchantId: string, q: ListPayoutsDto, mask: boolean): Promise<Paged<PayoutView>> {
-    const qb = this.payouts.createQueryBuilder('p').where('p.merchant_id = :id', { id: merchantId });
+    const qb = this.payouts.createQueryBuilder('p')
+      .leftJoinAndSelect('p.run', 'run')
+      .where('p.merchant_id = :id', { id: merchantId });
     if (q.status) qb.andWhere('p.status = :status', { status: q.status });
     const page = q.page ?? 1;
     const pageSize = q.pageSize ?? 20;
@@ -345,6 +407,7 @@ export class MerchantsService {
     }
     return {
       id: m.id,
+      code: m.code,
       externalRef: m.externalRef,
       name: m.name,
       email: m.email,
@@ -366,6 +429,7 @@ export class MerchantsService {
     return {
       ...(m.app ? this.toView(m, m.app) : {}),
       id: m.id,
+      code: m.code,
       appId: m.appId,
       appName: m.app?.name ?? null,
       xenditAccountId: m.xenditAccountId ?? null,
@@ -410,7 +474,10 @@ function applyProfileUpdate(merchant: Merchant, dto: UpdateMerchantAppDto): void
 
 export interface PayoutView {
   id: string;
+  code: string;
   runId: string | null;
+  /** Display code of the run; null when the run relation wasn't loaded or is gone. */
+  runCode: string | null;
   merchantId: string;
   appId: string;
   amount: number;
@@ -433,7 +500,9 @@ export interface PayoutView {
 export function payoutView(p: Payout, mask: boolean): PayoutView {
   return {
     id: p.id,
+    code: p.code,
     runId: p.runId ?? null,
+    runCode: p.run?.code ?? null,
     merchantId: p.merchantId,
     appId: p.appId,
     amount: p.amount,

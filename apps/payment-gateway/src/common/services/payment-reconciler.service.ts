@@ -1,3 +1,4 @@
+import { isRefundableOnline, paymentChannelOf } from '../payment-methods';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
@@ -67,6 +68,7 @@ export class PaymentReconcilerService {
     // Apply the transition.
     tx.status = fetched.status;
     if (fetched.providerCompletedAt) tx.providerCompletedAt ??= fetched.providerCompletedAt;
+    if (fetched.status === TransactionStatus.Succeeded) tx.paymentChannel ??= paymentChannelOf(fetched.raw);
     tx.webhookReceivedAt ??= new Date(); // we discovered it via reconcile, not webhook
     await this.transactions.save(tx);
 
@@ -98,6 +100,8 @@ export class PaymentReconcilerService {
             amount: tx.amount,
             currency: tx.currency,
             metadata: tx.metadata,
+            payment_channel: tx.paymentChannel ?? null,
+            refundable_online: isRefundableOnline(tx.paymentChannel),
             source: 'reconcile',
             timestamps: {
               created_at: tx.createdAt,

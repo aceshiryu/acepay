@@ -1,5 +1,6 @@
 export type RoutePage =
   | 'dashboard'
+  | 'gateways'
   | 'apps'
   | 'app-detail'
   | 'register-app'

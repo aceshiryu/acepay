@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEnum, IsInt, IsOptional,
-  IsString, IsUrl, Length, Matches, MaxLength, Min, MinLength, ValidateNested,
+  ArrayMaxSize, ArrayUnique, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional,
+  IsString, Length, Matches, MaxLength, Min, MinLength, ValidateNested,
 } from 'class-validator';
 import { BillingMode, PlanInterval, PlanRegion, Provider } from '../../../common/enums';
+import { IsWebhookUrl } from '../../../common/validators/is-webhook-url';
+import { ALL_PAYMENT_METHOD_CODES } from '../../../common/payment-methods';
 
 export class InlinePlanDto {
   @ApiProperty({ enum: Provider, example: Provider.Lemonsqueezy })
@@ -88,7 +90,7 @@ export class CreateAppDto {
     description: 'Endpoint AcePay POSTs normalized events to',
   })
   @IsOptional()
-  @IsUrl({ require_protocol: true })
+  @IsWebhookUrl()
   @MaxLength(500)
   webhookUrl?: string;
 
@@ -127,6 +129,21 @@ export class CreateAppDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @ApiPropertyOptional({
+    type: [String],
+    nullable: true,
+    example: ['GCASH', 'PAYMAYA', 'GRABPAY', 'SHOPEEPAY', 'QRPH'],
+    description:
+      'The payment methods this app\'s checkouts offer (Xendit codes, see PAYMENT_METHOD_GROUPS). ' +
+      'null or empty = every method the Xendit account has switched on.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(ALL_PAYMENT_METHOD_CODES.length)
+  @ArrayUnique()
+  @IsIn(ALL_PAYMENT_METHOD_CODES as string[], { each: true, message: 'unknown payment method code' })
+  paymentMethods?: string[] | null;
+
   @ApiProperty({
     enum: BillingMode,
     example: BillingMode.OneTime,
@@ -137,8 +154,8 @@ export class CreateAppDto {
 
   @ApiPropertyOptional({
     type: [InlinePlanDto],
-    description: 'When billingMode=subscription, register subscription plans inline. ' +
-      'Each plan references a Lemon Squeezy Subscription variant by ID.',
+    description: 'Optional. Register subscription plans inline (they can also be added later). ' +
+      'Each Lemon Squeezy plan references a Subscription variant by ID.',
   })
   @IsOptional()
   @IsArray()

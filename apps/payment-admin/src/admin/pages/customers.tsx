@@ -33,13 +33,13 @@ export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigat
     <PageShell
       title="Customers"
       breadcrumbs={[{ label: 'Directory' }, { label: 'Customers' }]}
-      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search name, email, external id…', width: 280 }}
+      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search code, name, email, external id…', width: 280 }}
     >
       <GuardedView
         state={stats}
         height={70}
         render={(s) => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
             <MiniStatCard label="Total Customers" value={s.total} sub="across all apps" />
             <MiniStatCard label="With Subscriptions" value={s.withSubscriptions} sub="active recurring" />
             <MiniStatCard label="Joined This Month" value={s.joinedThisMonth} sub="new" />
@@ -68,7 +68,7 @@ export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigat
           <>
             <Table<CustomerListRow>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.customer.id.slice(0, 8)}…</span> },
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.customer.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.customer.app?.name ?? '?'} size={18} />{r.customer.app?.name ?? '—'}

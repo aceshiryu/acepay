@@ -1,12 +1,12 @@
 'use client';
 
 import React, { CSSProperties, ReactNode } from 'react';
-import { Icon, Sparkline } from './primitives';
+import { CopyButton, Icon, Sparkline } from './primitives';
 import { MovementEvent } from './data';
 
 export const inputStyle: CSSProperties = {
-  width: '100%', padding: '8px 11px', fontFamily: 'inherit',
-  fontSize: 13, border: '1px solid var(--border)', borderRadius: 6,
+  width: '100%', padding: '10px 12px', fontFamily: 'inherit',
+  fontSize: 13, border: '1px solid var(--border)', borderRadius: 10,
   outline: 'none', background: 'var(--surface)', color: 'var(--ink)',
 };
 
@@ -20,8 +20,9 @@ export function Field({ label, hint, children }: { label: ReactNode; hint?: Reac
   );
 }
 
-export function StatCard({ label, value, sub, trend, sparkData, accent, big }: {
+export function StatCard({ label, value, sub, trend, sparkData, accent, big, icon }: {
   label: string;
+  icon?: string;
   value: ReactNode;
   sub?: ReactNode;
   trend?: number;
@@ -31,21 +32,25 @@ export function StatCard({ label, value, sub, trend, sparkData, accent, big }: {
 }) {
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)', padding: '14px 16px',
+      background: 'var(--surface)', border: '1px solid var(--hairline)',
+      borderRadius: 'var(--radius)', padding: '16px 18px',
       boxShadow: 'var(--shadow-1)',
-      display: 'flex', flexDirection: 'column', gap: 8,
-      minHeight: big ? 124 : 100,
+      display: 'flex', flexDirection: 'column', gap: 10,
+      minHeight: big ? 132 : 104,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{
-          fontSize: 11, fontWeight: 600, color: 'var(--muted)',
-          textTransform: 'uppercase', letterSpacing: 0.5,
-        }}>{label}</div>
-        {accent && <span style={{ width: 8, height: 8, borderRadius: 8, background: accent }} />}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</div>
+        {accent && (
+          <span style={{
+            width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+            background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon name={icon ?? 'dash'} size={15} color="#fff" strokeWidth={2} />
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ fontSize: big ? 30 : 24, fontWeight: 600, letterSpacing: -0.6, lineHeight: 1.05, color: 'var(--ink)' }}>
+        <div style={{ fontSize: big ? 30 : 24, fontWeight: 700, letterSpacing: -0.8, lineHeight: 1.05, color: 'var(--ink)' }}>
           {value}
         </div>
         {sparkData && <Sparkline data={sparkData} color={accent || 'var(--accent)'} width={92} height={32} />}
@@ -75,17 +80,14 @@ export function MiniStatCard({ label, value, sub, warning, onClick }: {
 }) {
   return (
     <div onClick={onClick} style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)', padding: '12px 14px',
+      background: 'var(--surface)', border: '1px solid var(--hairline)',
+      borderRadius: 'var(--radius)', padding: '14px 16px',
       boxShadow: 'var(--shadow-1)', cursor: onClick ? 'pointer' : 'default',
       display: 'flex', flexDirection: 'column', gap: 4,
-    }}>
-      <div style={{
-        fontSize: 10.5, fontWeight: 600, color: 'var(--muted)',
-        textTransform: 'uppercase', letterSpacing: 0.5,
-      }}>{label}</div>
+    }} className={onClick ? 'lift' : undefined}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: warning ? 'var(--bad)' : 'var(--ink)' }}>{value}</div>
+        <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.4, color: warning ? 'var(--bad)' : 'var(--ink)' }}>{value}</div>
         {warning && <Icon name="warn" size={13} color="var(--bad)" />}
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sub}</div>
@@ -111,7 +113,7 @@ export function CollapsibleCard({ title, badge, open, onToggle, children }: {
 }) {
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
+      background: 'var(--surface)', border: '1px solid var(--hairline)',
       borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-1)',
       overflow: 'hidden',
     }}>
@@ -136,7 +138,7 @@ export function CodeBlock({ children }: { children: ReactNode }) {
   return (
     <pre className="mono" style={{
       margin: 0, padding: '14px 18px',
-      background: '#FAF8F1', color: 'var(--ink)',
+      background: 'var(--surface-2)', color: 'var(--ink)',
       fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre',
       overflow: 'auto',
     }}>{children}</pre>
@@ -151,16 +153,16 @@ export function Modal({ title, onClose, children, width = 460 }: {
 }) {
   return (
     <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(22,20,15,0.45)',
+      position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       zIndex: 50, backdropFilter: 'blur(2px)',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        width, background: 'var(--surface)', borderRadius: 10,
+        width, maxWidth: 'calc(100vw - 32px)', background: 'var(--surface)', borderRadius: 16,
         boxShadow: 'var(--shadow-2)', padding: '20px 22px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{title}</h3>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{title}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', padding: 4, color: 'var(--muted)' }}>
             <Icon name="x" size={14} />
           </button>
@@ -182,12 +184,12 @@ export function TablePagination({ total, pageSize = 20 }: { total: number; pageS
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <button style={{
           padding: '4px 8px', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 4, fontSize: 11.5, color: 'var(--muted)',
+          borderRadius: 8, fontSize: 11.5, color: 'var(--muted)',
         }}>← Prev</button>
         <span style={{ fontSize: 11.5 }}>1 of 1</span>
         <button style={{
           padding: '4px 8px', background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 4, fontSize: 11.5, color: 'var(--muted)',
+          borderRadius: 8, fontSize: 11.5, color: 'var(--muted)',
         }}>Next →</button>
       </div>
     </div>
@@ -285,4 +287,37 @@ export function MovementTimeline({ events }: { events: MovementEvent[] }) {
       })}
     </div>
   );
+}
+
+/** A secret shown once: masked until revealed, with a working copy button. */
+export function CredentialReveal({ label, value }: { label: string; value: string }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const display = revealed ? value : maskValue(value);
+  return (
+    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--hairline)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</span>
+        <button onClick={() => setRevealed((r) => !r)}
+          style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, color: 'var(--accent)', fontWeight: 550, cursor: 'pointer' }}>
+          {revealed ? 'Hide' : 'Reveal'}
+        </button>
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--surface-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '8px 10px',
+      }}>
+        <span className="mono" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {display}
+        </span>
+        <CopyButton value={value} label={`Copy ${label}`} />
+      </div>
+    </div>
+  );
+}
+
+export function maskValue(v: string) {
+  const parts = v.split('_');
+  if (parts.length < 3) return v;
+  const last = parts[parts.length - 1];
+  return parts.slice(0, parts.length - 1).join('_') + '_' + '•'.repeat(20) + last.slice(-4);
 }

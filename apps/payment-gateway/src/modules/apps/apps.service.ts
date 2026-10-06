@@ -1,3 +1,4 @@
+import { normalizePaymentMethods } from '../../common/payment-methods';
 import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
@@ -10,6 +11,8 @@ import { BillingMode, PlanRegion, Provider } from '../../common/enums';
 import { App, Plan } from '../../database/entities';
 import { LemonsqueezyAdapter } from '../../payment-providers/lemonsqueezy.adapter';
 import { CustomersAppService } from '../customers/customers-app.service';
+import { AppConfigService, snapshot } from '../marketplace/app-config.service';
+import { MarketplaceDefaultsService } from '../marketplace/marketplace-defaults.service';
 import { SubscriptionsAppService } from '../subscriptions/subscriptions-app.service';
 import { CreateAppDto } from './dto/create-app.dto';
 import { TestSubscriptionDto } from './dto/test-subscription.dto';
@@ -24,9 +27,11 @@ export interface AppWithKey {
 
 export interface SandboxRunResult {
   subscriptionId: string;
+  subscriptionCode: string;
   checkoutUrl: string;
   provider: Provider;
   customerId: string;
+  customerCode: string;
 }
 
 @Injectable()
@@ -37,6 +42,8 @@ export class AppsService {
     private readonly lsAdapter: LemonsqueezyAdapter,
     private readonly customersApp: CustomersAppService,
     private readonly subscriptionsApp: SubscriptionsAppService,
+    private readonly marketplaceDefaults: MarketplaceDefaultsService,
+    private readonly appConfig: AppConfigService,
   ) {}
 
   async create(dto: CreateAppDto): Promise<AppWithKey> {
@@ -55,12 +62,8 @@ export class AppsService {
         message: 'One-time-payment apps cannot have subscription plans',
       });
     }
-    if (dto.billingMode === BillingMode.Subscription && (!dto.plans || dto.plans.length === 0)) {
-      throw new BadRequestException({
-        error: 'plans_required',
-        message: 'Subscription apps must register at least one plan',
-      });
-    }
+    // Plans are optional at registration — an app can be registered first and
+    // have plans added later from the Plans page.
 
     // Resolve each plan's authoritative price/currency/interval. For LS we
     // verify the variant id against the live store; for Xendit we trust the
@@ -144,8 +147,12 @@ export class AppsService {
     const apiKey = generateApiKey(slug, 'live');
     const webhookSecret = generateWebhookSecret();
 
+    // New apps start from the operator's marketplace defaults (a copy — later
+    // edits to the defaults never change this app).
+    const marketplace = await this.marketplaceDefaults.appFields();
+
     // Transaction: app + plans together, so a partial failure leaves no orphans.
-    return this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       const app = manager.create(App, {
         name: dto.name,
         slug,
@@ -158,6 +165,7 @@ export class AppsService {
         rateLimit: dto.rateLimit ?? 100,
         billingMode: dto.billingMode,
         isActive: dto.isActive ?? true,
+        ...marketplace,
       });
       const savedApp = await manager.save(app);
 
@@ -181,6 +189,10 @@ export class AppsService {
       }
       return { app: savedApp, apiKey, webhookSecret, plans: savedPlans };
     });
+
+    // Record where the starting marketplace settings came from.
+    await this.appConfig.record(created.app.id, 'admin', 'platform defaults', {}, snapshot(created.app));
+    return created;
   }
 
   findAll(): Promise<App[]> {
@@ -207,6 +219,7 @@ export class AppsService {
       ...(dto.optionalMetadata !== undefined && { optionalMetadata: dto.optionalMetadata }),
       ...(dto.rateLimit !== undefined && { rateLimit: dto.rateLimit }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+      ...(dto.paymentMethods !== undefined && { paymentMethods: normalizePaymentMethods(dto.paymentMethods) }),
     });
     return this.apps.save(app);
   }
@@ -299,9 +312,11 @@ export class AppsService {
     });
     return {
       subscriptionId: result.subscription.id,
+      subscriptionCode: result.subscription.code,
       checkoutUrl: result.checkoutUrl,
       provider: result.subscription.provider,
       customerId: customer.id,
+      customerCode: customer.code,
     };
   }
 }

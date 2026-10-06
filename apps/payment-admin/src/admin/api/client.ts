@@ -2,7 +2,7 @@ import {
   AdminUser, AppKeyRotated, AppRegistered, AppSummary, AppView, BillingMode,
   CustomerListRow, CustomersStats, Customer,
   DashboardStats, LoginResponse, LookedUpVariant,
-  MarketplaceChannel, MarketplaceSettingsRow, MarketplaceSummary,
+  MarketplaceChannel, MarketplaceConfigChange, MarketplaceDefaults, MarketplaceSettingsRow, MarketplaceSummary,
   MerchantBalance, MerchantDetail, MerchantListRow, MerchantStatus,
   Notification, NotificationSeverity, NotificationStats,
   Payout, PayoutRun, PayoutRunDetail, PayoutRunStatus, PayoutStatus,
@@ -156,7 +156,12 @@ export const apps = {
     optionalMetadata: string[];
     rateLimit: number;
     isActive: boolean;
+    paymentMethods: string[] | null;
   }>) => request<AppView>(`/admin/apps/${id}`, { method: 'PATCH', body }),
+  webhookTest: (id: string) =>
+    request<{ ok: boolean; status: number; ms: number | null; detail: string; at: string }>(
+      `/admin/apps/${id}/webhook-test`, { method: 'POST' },
+    ),
   regenerateKey: (id: string) =>
     request<AppKeyRotated>(`/admin/apps/${id}/regenerate-key`, { method: 'POST' }),
   regenerateWebhookSecret: (id: string) =>
@@ -172,9 +177,11 @@ export const apps = {
     redirect?: string;
   }) => request<{
     subscriptionId: string;
+    subscriptionCode: string;
     checkoutUrl: string;
     provider: 'lemonsqueezy' | 'xendit';
     customerId: string;
+    customerCode: string;
   }>(`/admin/apps/${id}/test-subscription`, { method: 'POST', body }),
 };
 
@@ -201,7 +208,7 @@ export const settings = {
     ok: boolean;
     simulated: string;
     payload: Record<string, unknown>;
-    result: { duplicate: boolean; eventId: string | null; reason?: string };
+    result: { duplicate: boolean; eventId: string | null; eventCode: string | null; reason?: string };
   }>('/admin/settings/simulate-webhook', { method: 'POST', body }),
 };
 
@@ -349,9 +356,25 @@ export const logs = {
 // ── Marketplace ──────────────────────────────────────────────────────────
 export const marketplace = {
   settings: () => request<{ data: MarketplaceSettingsRow[] }>('/admin/marketplace/settings'),
-  updateSettings: (appId: string, body: { enabled: boolean; feePercent?: number | null; minPayout?: number }) =>
+  updateSettings: (appId: string, body: {
+    enabled: boolean;
+    feePercent?: number | null;
+    minPayout?: number;
+    feeMinPercent?: number | null;
+    feeMaxPercent?: number | null;
+  }) =>
     request<MarketplaceSettingsRow>(`/admin/apps/${appId}/marketplace`, { method: 'PUT', body }),
   summary: () => request<MarketplaceSummary>('/admin/marketplace/summary'),
+  defaults: () => request<MarketplaceDefaults>('/admin/marketplace/defaults'),
+  updateDefaults: (body: {
+    enabled: boolean;
+    feePercent?: number | null;
+    feeMinPercent?: number | null;
+    feeMaxPercent?: number | null;
+    minPayout?: number;
+  }) => request<MarketplaceDefaults>('/admin/marketplace/defaults', { method: 'PUT', body }),
+  configChanges: (q: { appId?: string; page?: number; pageSize?: number } = {}) =>
+    request<Paged<MarketplaceConfigChange>>('/admin/marketplace/config-changes', { query: q }),
   channels: (currency = 'PHP') =>
     request<MarketplaceChannel[]>('/admin/marketplace/channels', { query: { currency } }),
 };
@@ -396,7 +419,7 @@ export const payoutRuns = {
     request<PayoutRunDetail>(`/admin/payout-runs/${id}/confirm`, { method: 'POST', body }),
   discard: (id: string) => request<PayoutRunDetail>(`/admin/payout-runs/${id}/discard`, { method: 'POST' }),
   retryFailed: (id: string) =>
-    request<{ retried: number; notRetried: Array<{ payoutId: string; reason: string }>; run: PayoutRunDetail }>(
+    request<{ retried: number; notRetried: Array<{ payoutId: string; payoutCode: string; reason: string }>; run: PayoutRunDetail }>(
       `/admin/payout-runs/${id}/retry-failed`, { method: 'POST' },
     ),
   /** Fetches the run's CSV (with the Bearer token) and saves it as a file. */

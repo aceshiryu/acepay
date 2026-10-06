@@ -19,7 +19,7 @@ jest.mock('xendit-node', () => ({
   })),
 }));
 
-import { XenditAdapter } from './xendit.adapter';
+import { sameToken, XenditAdapter } from './xendit.adapter';
 
 const WEBHOOK_TOKEN = 'xnd_callback_token';
 
@@ -73,6 +73,15 @@ describe('XenditAdapter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     adapter = new XenditAdapter(makeConfig());
+  });
+
+  describe('sameToken — constant-time compare', () => {
+    it('matches only the exact token, whatever the lengths', () => {
+      expect(sameToken('tok_abc', 'tok_abc')).toBe(true);
+      expect(sameToken('tok_abd', 'tok_abc')).toBe(false);
+      expect(sameToken('tok_ab', 'tok_abc')).toBe(false);
+      expect(sameToken('', 'tok_abc')).toBe(false);
+    });
   });
 
   describe('verifyWebhook (A3) — static token compare', () => {

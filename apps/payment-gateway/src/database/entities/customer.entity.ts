@@ -6,6 +6,7 @@ import { XenditPaymentMethodStatus } from '../../common/enums';
 import { App } from './app.entity';
 import { Subscription } from './subscription.entity';
 import { Transaction } from './transaction.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('customers')
 @Unique('uq_customers_app_email', ['appId', 'email'])
@@ -13,6 +14,10 @@ import { Transaction } from './transaction.entity';
 export class Customer {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('customers'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })

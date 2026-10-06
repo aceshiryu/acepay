@@ -11,12 +11,17 @@ import { Customer } from './customer.entity';
 import { Subscription } from './subscription.entity';
 import { TransactionLog } from './transaction-log.entity';
 import { WebhookEvent } from './webhook-event.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('transactions')
 @Unique('uq_tx_app_idem', ['appId', 'idempotencyKey'])
 export class Transaction {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('transactions'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })
@@ -118,6 +123,10 @@ export class Transaction {
 
   @Column({ name: 'checkout_url', type: 'varchar', length: 500, nullable: true })
   checkoutUrl?: string | null;
+
+  /** How it was paid (Xendit channel: QRPH, GCASH, CREDIT_CARD, …); set when it succeeds. */
+  @Column({ name: 'payment_channel', type: 'varchar', length: 40, nullable: true })
+  paymentChannel?: string | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

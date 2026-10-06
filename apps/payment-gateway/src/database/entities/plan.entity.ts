@@ -5,12 +5,17 @@ import {
 import { PlanInterval, PlanRegion, Provider } from '../../common/enums';
 import { App } from './app.entity';
 import { Subscription } from './subscription.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('plans')
 @Unique('uq_plans_app_slug', ['appId', 'slug'])
 export class Plan {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('plans'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })

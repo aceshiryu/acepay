@@ -1,40 +1,46 @@
 :root {
-  --bg:           #F6F4EE;
+  --bg:           #F4F6FA;
   --surface:      #FFFFFF;
-  --surface-2:    #FBF9F4;
-  --ink:          #16140F;
-  --ink-2:        #3A372F;
-  --muted:        #7A7568;
-  --muted-2:      #A8A294;
-  --border:       #E5E1D6;
-  --border-2:     #ECE8DC;
-  --hairline:     #EFEBDE;
+  --surface-2:    #F8FAFC;
+  --ink:          #111827;
+  --ink-2:        #374151;
+  --muted:        #6B7280;
+  --muted-2:      #9CA3AF;
+  --border:       #E4E8EF;
+  --border-2:     #EAEEF4;
+  --hairline:     #EEF1F5;
 
-  --accent:       #1E2A4A;
+  --accent:       #4F7CF7;
   --accent-ink:   #FFFFFF;
-  --accent-soft:  #E4E3EB;
+  --accent-soft:  #E8EEFE;
+  --accent-hover: #3F6BE6;
 
-  --ok:           #2F7D52;
-  --ok-soft:      #DCEEDF;
-  --warn:         #B6781F;
-  --warn-soft:    #F3E5C7;
-  --bad:          #B32D2E;
-  --bad-soft:     #F4D9D6;
-  --info:         #3D5BA9;
-  --info-soft:    #DDE2F1;
-  --neutral-soft: #E9E5D9;
-  --refund:       #B36A21;
-  --refund-soft:  #F3DDC1;
+  --ok:           #1F8A5B;
+  --ok-soft:      #DDF3E8;
+  --warn:         #B7791F;
+  --warn-soft:    #FBEFD5;
+  --bad:          #D14343;
+  --bad-soft:     #FCE4E4;
+  --info:         #3B6FE0;
+  --info-soft:    #E3ECFD;
+  --neutral-soft: #EEF1F5;
+  --refund:       #C2691B;
+  --refund-soft:  #FBE7D3;
 
   --lemon-bg:    #FFF4C2;
   --lemon-ink:   #8A6D00;
-  --xendit-bg:   #EEE5F8;
-  --xendit-ink:  #5D34A8;
+  --xendit-bg:   #E5EDFF;
+  --xendit-ink:  #2457D6;
 
-  --radius:       8px;
-  --radius-sm:    6px;
-  --shadow-1:     0 1px 0 rgba(22,20,15,0.04), 0 1px 2px rgba(22,20,15,0.03);
-  --shadow-2:     0 8px 24px -8px rgba(22,20,15,0.12), 0 2px 4px rgba(22,20,15,0.04);
+  /* Header colours for GatewayCard (providers, apps) */
+  --brand-lemon:  #F5B700;
+  --brand-xendit: #2F6BFF;
+  --brand-card:   #8B93A7;
+
+  --radius:       12px;
+  --radius-sm:    8px;
+  --shadow-1:     0 1px 2px rgba(16,24,40,0.04), 0 4px 12px -4px rgba(16,24,40,0.06);
+  --shadow-2:     0 12px 28px -10px rgba(16,24,40,0.16), 0 2px 6px rgba(16,24,40,0.05);
 
   --font-sans:    var(--font-inter), -apple-system, system-ui, sans-serif;
   --font-mono:    var(--font-jetbrains), ui-monospace, monospace;
@@ -64,8 +70,8 @@ h1, h2, h3, h4, h5, h6, p, pre { margin: 0; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D8D3C2; border-radius: 10px; border: 2px solid var(--bg); }
-::-webkit-scrollbar-thumb:hover { background: #B9B39E; }
+::-webkit-scrollbar-thumb { background: #D5DAE3; border-radius: 10px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #B4BCC9; }
 
 @keyframes pulse-fade {
   0%, 100% { opacity: 1; }
@@ -76,4 +82,31 @@ h1, h2, h3, h4, h5, h6, p, pre { margin: 0; }
 @keyframes flash-in {
   0% { background: var(--info-soft); }
   100% { background: transparent; }
+}
+
+
+/* Faint circles in GatewayCard headers, like the inspiration's patterned strips. */
+.gw-pattern {
+  background-image:
+    radial-gradient(circle at 85% 20%, rgba(255,255,255,0.18) 0 18px, transparent 19px),
+    radial-gradient(circle at 70% 85%, rgba(255,255,255,0.12) 0 10px, transparent 11px),
+    radial-gradient(circle at 96% 75%, rgba(255,255,255,0.10) 0 26px, transparent 27px);
+}
+
+.lift { transition: transform 140ms, box-shadow 140ms; }
+.lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+
+.rail-nav { gap: 2px; }
+.nav-icon { width: 30px; height: 30px; }
+.nav-group { margin: 14px 0 6px; }
+.rail-nav .nav-group:first-child { margin-top: 0; }
+.nav-link:hover { background: var(--surface-2); }
+@media (max-height: 760px) {
+  .nav-icon { width: 26px; height: 26px; }
+  .nav-group { margin: 10px 0 4px; }
+}
+
+@media (max-width: 640px) {
+  .page-top { padding: 18px 16px 12px !important; }
+  .page-main { padding: 8px 16px 24px !important; }
 }

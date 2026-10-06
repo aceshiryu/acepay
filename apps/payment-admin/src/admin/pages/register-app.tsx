@@ -6,7 +6,7 @@ import { LookedUpVariant, Plan, PlanRegion } from '../api/types';
 import { InlinePlanInput } from '../api/client';
 import { Button, Card, Icon } from '../primitives';
 import { PageShell } from '../layout';
-import { Field, inputStyle } from '../shared';
+import { CredentialReveal, Field, inputStyle } from '../shared';
 import { Navigate } from '../types';
 
 type DraftPlan = {
@@ -48,7 +48,7 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
   const [webhookUrl, setWebhookUrl] = React.useState('');
   const [requiredMeta, setRequiredMeta] = React.useState('');
   const [optionalMeta, setOptionalMeta] = React.useState('');
-  const [plans, setPlans] = React.useState<DraftPlan[]>([newDraftPlan()]);
+  const [plans, setPlans] = React.useState<DraftPlan[]>([]);
 
   const [apiKey, setApiKey] = React.useState<string | null>(null);
   const [webhookSecret, setWebhookSecret] = React.useState<string | null>(null);
@@ -100,10 +100,6 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
     if (!name.trim()) return;
     setError(null);
 
-    if (plans.length === 0) {
-      setError('Add at least one plan.');
-      return;
-    }
     for (const p of plans) {
       if (!p.title.trim()) {
         setError('Each plan needs a title.');
@@ -146,7 +142,7 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
         requiredMetadata: requiredMeta.split(',').map((s) => s.trim()).filter(Boolean),
         optionalMetadata: optionalMeta.split(',').map((s) => s.trim()).filter(Boolean),
         billingMode: 'subscription',
-        plans: planBody,
+        plans: planBody.length > 0 ? planBody : undefined,
       });
       setApiKey(result.apiKey);
       setWebhookSecret(result.webhookSecret);
@@ -271,8 +267,8 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
 
         {/* Step 3 — Subscription plans */}
         <Card
-          title="Subscription plans"
-          subtitle="Add one or more Lemon Squeezy Subscription variants for this app"
+          title="Subscription plans (optional)"
+          subtitle="Add plans now, or skip and add them later from the Plans page"
           padding={0}
           action={
             <Button variant="secondary" size="sm" leading={<Icon name="plus" size={11} strokeWidth={2.4} />}
@@ -282,7 +278,12 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
           }
         >
           <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <HelpBlock />
+            {plans.length === 0 && (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                No plans yet — that's fine. You can register the app now and add plans later.
+              </div>
+            )}
+            {plans.length > 0 && <HelpBlock />}
             {plans.map((p, i) => (
               <PlanRow
                 key={p.key}
@@ -291,7 +292,7 @@ export function RegisterAppPage({ onNavigate, onBack }: { onNavigate: Navigate; 
                 onChange={(patch) => updatePlan(p.key, patch)}
                 onVerify={() => verifyPlan(p.key)}
                 onRemove={() => setPlans((prev) => prev.filter((x) => x.key !== p.key))}
-                canRemove={plans.length > 1}
+                canRemove
               />
             ))}
           </div>
@@ -516,36 +517,3 @@ function PlanRow({ index, plan, onChange, onVerify, onRemove, canRemove }: {
   );
 }
 
-function CredentialReveal({ label, value }: { label: string; value: string }) {
-  const [revealed, setRevealed] = React.useState(false);
-  const display = revealed ? value : maskValue(value);
-  return (
-    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--hairline)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</span>
-        <button onClick={() => setRevealed((r) => !r)}
-          style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, color: 'var(--accent)', fontWeight: 550, cursor: 'pointer' }}>
-          {revealed ? 'Hide' : 'Reveal'}
-        </button>
-      </div>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: '#FAF8F1', border: '1px solid var(--border-2)', borderRadius: 6, padding: '8px 10px',
-      }}>
-        <span className="mono" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {display}
-        </span>
-        <button style={{ background: 'none', border: 'none', padding: 4, color: 'var(--muted)', cursor: 'pointer' }}>
-          <Icon name="copy" size={12} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function maskValue(v: string) {
-  const parts = v.split('_');
-  if (parts.length < 3) return v;
-  const last = parts[parts.length - 1];
-  return parts.slice(0, parts.length - 1).join('_') + '_' + '•'.repeat(20) + last.slice(-4);
-}

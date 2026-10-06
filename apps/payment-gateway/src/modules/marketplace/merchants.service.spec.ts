@@ -2,7 +2,7 @@ jest.mock('../../database/entities', () => ({
   App: class App {}, Customer: class Customer {}, Plan: class Plan {}, Subscription: class Subscription {},
   Transaction: class Transaction {}, TransactionLog: class TransactionLog {}, User: class User {},
   WebhookEvent: class WebhookEvent {}, Merchant: class Merchant {}, Payout: class Payout {},
-  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {},
+  PayoutRun: class PayoutRun {}, XenditSplitRule: class XenditSplitRule {}, PlatformSetting: class PlatformSetting {},
 }));
 
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { MerchantStatus } from '../../common/enums';
 import { App, Merchant, Payout } from '../../database/entities';
 import { XenditPlatformClient } from '../../payment-providers/xendit-platform.client';
 import { MerchantEventsService } from './merchant-events.service';
-import { MerchantsService } from './merchants.service';
+import { ACTIVATION_RECHECK_MS, MerchantsService } from './merchants.service';
 import { payoutDestinationHash } from './marketplace.util';
 
 const BOOKLY = { id: 'app-bookly', name: 'BooklyPH', marketplaceEnabled: true, marketplaceFeePercent: 12, marketplaceMinPayout: 50000 } as App;
@@ -88,10 +88,35 @@ describe('MerchantsService', () => {
       expect(view).not.toHaveProperty('payoutAccountNumber');
     });
 
-    it('stays pending when the sub-account is not LIVE yet', async () => {
-      xendit.createOwnedAccount.mockResolvedValue({ id: 'sub-new', status: 'REGISTERED', raw: {} });
-      const view = await service.create(BOOKLY, dto);
-      expect(view.status).toBe(MerchantStatus.Pending);
+    it('stays pending when the sub-account is not LIVE yet — and looks again a few seconds later', async () => {
+      jest.useFakeTimers();
+      try {
+        xendit.createOwnedAccount.mockResolvedValue({ id: 'sub-new', status: 'REGISTERED', raw: {} });
+        const view = await service.create(BOOKLY, dto);
+        expect(view.status).toBe(MerchantStatus.Pending);
+
+        const saved = merchants.save.mock.calls.at(-1)![0];
+        merchants.findOne.mockResolvedValue({ ...saved });
+        xendit.getAccount.mockResolvedValue({ id: 'sub-new', status: 'LIVE', raw: {} });
+        expect(xendit.getAccount).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(ACTIVATION_RECHECK_MS);
+        expect(xendit.getAccount).toHaveBeenCalledWith('sub-new');
+        expect(merchants.save.mock.calls.at(-1)![0].status).toBe(MerchantStatus.Active);
+        expect(events.emit).toHaveBeenCalledWith('merchant.activated', expect.anything(), expect.anything());
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not schedule a re-check when Xendit says LIVE straight away', async () => {
+      jest.useFakeTimers();
+      try {
+        await service.create(BOOKLY, dto);
+        await jest.advanceTimersByTimeAsync(ACTIVATION_RECHECK_MS);
+        expect(xendit.getAccount).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('allows onboarding without payout details', async () => {
@@ -255,6 +280,35 @@ describe('MerchantsService', () => {
       const m = merchantRow();
       await service.applyAccountStatus(m, 'LIVE');
       expect(events.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('activatePending — the worker sweep', () => {
+    it('activates pending sub-accounts Xendit has made LIVE, and leaves the rest pending', async () => {
+      const live = { id: 'm1', status: MerchantStatus.Pending, xenditAccountId: 'sub-1', appId: BOOKLY.id };
+      const notYet = { id: 'm2', status: MerchantStatus.Pending, xenditAccountId: 'sub-2', appId: BOOKLY.id };
+      merchants.find.mockResolvedValue([live, notYet]);
+      merchants.findOne.mockImplementation(async ({ where }: { where: { id: string } }) => ({ ...(where.id === 'm1' ? live : notYet) }));
+      xendit.getAccount.mockImplementation(async (id: string) => ({ id, status: id === 'sub-1' ? 'LIVE' : 'REGISTERED', raw: {} }));
+      expect(await service.activatePending(new Date('2026-10-05T00:00:00Z'))).toEqual({ checked: 2, activated: 1 });
+      const where = merchants.find.mock.calls[0][0].where;
+      expect(where.status).toBe(MerchantStatus.Pending);
+      expect(merchants.find.mock.calls[0][0].take).toBe(20);
+    });
+
+    it('one failing account never stops the sweep', async () => {
+      merchants.find.mockResolvedValue([
+        { id: 'm1', status: MerchantStatus.Pending, xenditAccountId: 'sub-1' },
+        { id: 'm2', status: MerchantStatus.Pending, xenditAccountId: 'sub-2' },
+      ]);
+      merchants.findOne.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+        id: where.id, status: MerchantStatus.Pending, xenditAccountId: where.id === 'm1' ? 'sub-1' : 'sub-2', appId: BOOKLY.id,
+      }));
+      xendit.getAccount.mockImplementation(async (id: string) => {
+        if (id === 'sub-1') throw new Error('Xendit 503');
+        return { id, status: 'LIVE', raw: {} };
+      });
+      expect(await service.activatePending()).toEqual({ checked: 2, activated: 1 });
     });
   });
 

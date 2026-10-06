@@ -52,6 +52,8 @@ const KEYS = [
   // Xendit
   'XENDIT_SECRET_KEY',
   'XENDIT_WEBHOOK_TOKEN',
+  'XENDIT_PLATFORM_ACCOUNT_ID',
+  'XENDIT_PAYOUT_FEE_RESERVE',
   // Admin seed (gateway only — npm run seed:admin)
   'SEED_ADMIN_EMAIL',
   'SEED_ADMIN_PASSWORD',

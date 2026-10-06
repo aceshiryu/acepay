@@ -7,7 +7,7 @@ import {
   LogAction, LogActor, MerchantStatus, Provider, TransactionStatus, TransactionType,
 } from '../../common/enums';
 import { TransactionLoggerService } from '../../common/services/transaction-logger.service';
-import { App, Transaction } from '../../database/entities';
+import { App, Merchant, Transaction } from '../../database/entities';
 import { XenditPlatformClient } from '../../payment-providers/xendit-platform.client';
 import { CreateMarketplacePaymentDto } from './dto/marketplace-payment.dto';
 import { MerchantsService } from './merchants.service';
@@ -18,6 +18,7 @@ import { SplitRulesService } from './split-rules.service';
 
 export interface MarketplacePaymentView {
   id: string;
+  code: string;
   status: TransactionStatus;
   amount: number;
   currency: string;
@@ -28,6 +29,8 @@ export interface MarketplacePaymentView {
   merchantAmount: number;
   feePercent: number;
   checkoutUrl: string | null;
+  /** How it was paid (Xendit channel), once it succeeded; null before. */
+  paymentChannel: string | null;
   idempotencyKey: string | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
@@ -52,8 +55,8 @@ export class MarketplacePaymentsService {
   async create(app: App, dto: CreateMarketplacePaymentDto): Promise<MarketplacePaymentView> {
     this.merchants.requireMarketplace(app);
 
-    const replay = await this.findReplay(app, dto);
-    if (replay) return replay;
+    const existing = await this.findExisting(app, dto);
+    if (existing && !isRetryable(existing)) return toView(existing);
 
     const merchant = await this.merchants.findOwned(app, dto.merchantId);
     if (merchant.status !== MerchantStatus.Active || !merchant.xenditAccountId) {
@@ -61,6 +64,21 @@ export class MarketplacePaymentsService {
         error: 'merchant_not_active',
         message: `Merchant ${merchant.id} is ${merchant.status} and can't accept payments`,
       });
+    }
+
+    // The documented retry: an earlier attempt with this key failed before
+    // Xendit made an invoice (provider_error). Re-invoice the same row, on the
+    // fee it was priced at, instead of handing back a dead payment.
+    if (existing) {
+      existing.status = TransactionStatus.Pending;
+      existing.splitStatus = existing.splitRuleId ? 'pending' : null;
+      const retried = await this.transactions.save(existing);
+      await this.txLogger.log({
+        transaction: retried, action: LogAction.PaymentCreated, actor: LogActor.App,
+        statusFrom: TransactionStatus.Failed, statusTo: retried.status,
+        details: { merchantId: merchant.id, retry: true },
+      });
+      return this.sendInvoice(app, merchant, retried, dto);
     }
 
     let feePercent: number;
@@ -101,19 +119,29 @@ export class MarketplacePaymentsService {
       tx = await this.transactions.save(tx);
     } catch (err) {
       // Same idempotency key raced in from a retry: hand back the winner.
-      const winner = await this.findReplay(app, dto);
-      if (winner) return winner;
+      const winner = await this.findExisting(app, dto);
+      if (winner) return toView(winner);
       throw err;
     }
     await this.txLogger.log({
       transaction: tx, action: LogAction.PaymentCreated, actor: LogActor.App,
       statusTo: tx.status, details: { merchantId: merchant.id, feePercent, platformFee },
     });
+    return this.sendInvoice(app, merchant, tx, dto);
+  }
 
+  /** Creates the Xendit invoice for a pending row. On failure the row is
+   *  marked failed and the error rethrown; a retry with the same key comes
+   *  back through `create` and re-invoices it. */
+  private async sendInvoice(
+    app: App, merchant: Merchant, tx: Transaction, dto: CreateMarketplacePaymentDto,
+  ): Promise<MarketplacePaymentView> {
+    const currency = tx.currency;
+    const splitRuleId = tx.splitRuleId ?? null;
     let invoice;
     try {
       invoice = await this.xendit.createSplitInvoice({
-        forUserId: merchant.xenditAccountId,
+        forUserId: merchant.xenditAccountId as string,
         splitRuleId,
         externalId: tx.id,
         amount: dto.amount,
@@ -127,6 +155,8 @@ export class MarketplacePaymentsService {
           app_slug: app.slug,
           acepay_merchant: merchant.id,
         },
+        // Per app: Xendit's dashboard setting does not reach sub-accounts.
+        paymentMethods: app.paymentMethods ?? null,
       });
     } catch (err) {
       tx.status = TransactionStatus.Failed;
@@ -146,9 +176,9 @@ export class MarketplacePaymentsService {
     return toView(tx);
   }
 
-  /** Same key on the same app returns the original payment — but only if it's
+  /** Same key on the same app finds the original payment — but only if it's
    *  really the same request; reusing a key for a different charge is a bug. */
-  private async findReplay(app: App, dto: CreateMarketplacePaymentDto): Promise<MarketplacePaymentView | null> {
+  private async findExisting(app: App, dto: CreateMarketplacePaymentDto): Promise<Transaction | null> {
     const existing = await this.transactions.findOne({
       where: { appId: app.id, idempotencyKey: dto.idempotencyKey },
     });
@@ -160,13 +190,20 @@ export class MarketplacePaymentsService {
         details: { transactionId: existing.id },
       });
     }
-    return toView(existing);
+    return existing;
   }
+}
+
+/** A payment that failed before Xendit ever made an invoice: retrying the same
+ *  key should try again rather than replay the failure. */
+function isRetryable(tx: Transaction): boolean {
+  return tx.status === TransactionStatus.Failed && !tx.providerTxId;
 }
 
 export function toView(tx: Transaction): MarketplacePaymentView {
   return {
     id: tx.id,
+    code: tx.code,
     status: tx.status,
     amount: tx.amount,
     currency: tx.currency,
@@ -175,6 +212,7 @@ export function toView(tx: Transaction): MarketplacePaymentView {
     merchantAmount: tx.merchantAmount ?? tx.amount,
     feePercent: tx.platformFeePercent ?? 0,
     checkoutUrl: tx.checkoutUrl ?? null,
+    paymentChannel: tx.paymentChannel ?? null,
     idempotencyKey: tx.idempotencyKey ?? null,
     metadata: tx.metadata ?? {},
     createdAt: tx.createdAt,

@@ -265,6 +265,21 @@ describe('PaymentsAppService (/v1/payments)', () => {
   describe('refund', () => {
     beforeEach(() => transactions.findOne.mockResolvedValue(tx()));
 
+    it('refuses a QR Ph payment plainly, before reserving anything (Xendit cannot refund it online)', async () => {
+      transactions.findOne.mockResolvedValue(tx({ paymentChannel: 'QRPH' } as Partial<Transaction>));
+      await expect(service.refund(CALLER, 'tx-1', {})).rejects.toMatchObject({
+        response: { error: 'refund_not_supported', message: expect.stringMatching(/QRPH payments cannot be refunded online/) },
+      });
+      expect(refundFn).not.toHaveBeenCalled();
+      expect(em.save).not.toHaveBeenCalled();
+    });
+
+    it('still refunds an e-wallet payment online', async () => {
+      transactions.findOne.mockResolvedValue(tx({ paymentChannel: 'GCASH' } as Partial<Transaction>));
+      await service.refund(CALLER, 'tx-1', {});
+      expect(refundFn).toHaveBeenCalled();
+    });
+
     it('refunds the full amount by default', async () => {
       await service.refund(CALLER, 'tx-1', {});
       expect(refundFn).toHaveBeenCalledWith('inv-1', 49900);

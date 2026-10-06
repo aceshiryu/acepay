@@ -69,6 +69,15 @@ describe('XenditPlatformClient', () => {
       }]);
     });
 
+    it('names the rule in words Xendit accepts: letters, digits and spaces only', async () => {
+      mockRequest.mockResolvedValue({ data: { id: 'splitru_2' } });
+      await makeClient().createPlatformFeeSplitRule({ percent: 12.5, currency: 'PHP' });
+      const { data } = mockRequest.mock.calls[0][0];
+      expect(data.name).toBe('AcePay platform fee 12 point 5 percent');
+      expect(data.name).toMatch(/^[a-zA-Z0-9 ]+$/);
+      expect(data.description).toMatch(/^[a-zA-Z0-9 ]+$/);
+    });
+
     it('refuses to run without XENDIT_PLATFORM_ACCOUNT_ID', async () => {
       await expect(makeClient({ XENDIT_PLATFORM_ACCOUNT_ID: undefined }).createPlatformFeeSplitRule({ percent: 12, currency: 'PHP' }))
         .rejects.toThrow(/XENDIT_PLATFORM_ACCOUNT_ID/);
@@ -98,6 +107,14 @@ describe('XenditPlatformClient', () => {
       expect(req.url).toBe('https://api.xendit.co/v2/invoices');
       expect(req.headers).toEqual(expect.objectContaining({ 'for-user-id': 'sub-1', 'with-split-rule': 'splitru_1' }));
       expect(req.data).toEqual(expect.objectContaining({ external_id: 'tx-1', amount: 500, currency: 'PHP', payer_email: 'student@x.com' }));
+    });
+
+    it("offers only the app's payment methods when it has a list, and every method when it has none", async () => {
+      mockRequest.mockResolvedValue({ data: { id: 'inv-1', invoice_url: 'u' } });
+      await makeClient().createSplitInvoice({ ...base, paymentMethods: ['GCASH', 'QRPH'] });
+      expect(mockRequest.mock.calls[0][0].data.payment_methods).toEqual(['GCASH', 'QRPH']);
+      await makeClient().createSplitInvoice({ ...base, paymentMethods: null });
+      expect(mockRequest.mock.calls[1][0].data).not.toHaveProperty('payment_methods');
     });
 
     it('omits the split header for a 0% fee', async () => {

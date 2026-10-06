@@ -10,6 +10,8 @@ steps:
   - name: 'gcr.io/cloud-builders/npm'
     args: ['run', 'create-env', 'apps/payment-worker/dist/.env']
     env:
+      - 'XENDIT_PLATFORM_ACCOUNT_ID=${_XENDIT_PLATFORM_ACCOUNT_ID}'
+      - 'XENDIT_PAYOUT_FEE_RESERVE=${_XENDIT_PAYOUT_FEE_RESERVE}'
       - 'NODE_ENV=${_NODE_ENV}'
       - 'LEMONSQUEEZY_TEST_MODE=${_LEMONSQUEEZY_TEST_MODE}'
       - 'DB_SSL=true'
@@ -46,7 +48,7 @@ steps:
       - '-c'
       - |
         echo "=== Non-secret env values (verify these) ==="
-        grep -E '^(NODE_ENV|DB_SSL|DB_LOGGING|LEMONSQUEEZY_TEST_MODE)=' apps/payment-worker/dist/.env || echo '(none found!)'
+        grep -E '^(NODE_ENV|XENDIT_PLATFORM_ACCOUNT_ID|XENDIT_PAYOUT_FEE_RESERVE|DB_SSL|DB_LOGGING|LEMONSQUEEZY_TEST_MODE)=' apps/payment-worker/dist/.env || echo '(none found!)'
         echo ""
         echo "=== Secret env presence (key=set/unset) ==="
         for k in DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME REDIS_URL WEBHOOK_SECRET_ENCRYPTION_KEY LEMONSQUEEZY_API_KEY LEMONSQUEEZY_STORE_ID LEMONSQUEEZY_WEBHOOK_SECRET LEMONSQUEEZY_VARIANT_ID XENDIT_SECRET_KEY XENDIT_WEBHOOK_TOKEN; do
@@ -137,6 +139,11 @@ timeout: 1800s
 options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
+  # Marketplace (xenPlatform): the MASTER account's Business ID (Xendit dashboard →
+  # Settings → Business profile). Not a secret. Marketplace payments and fee splits
+  # fail without it. Set it on the trigger: _XENDIT_PLATFORM_ACCOUNT_ID=<24-hex id>.
+  _XENDIT_PLATFORM_ACCOUNT_ID: ''
+  _XENDIT_PAYOUT_FEE_RESERVE: '2500'
   _NODE_VERSION: '22'
   _NODE_ENV: development
   _LEMONSQUEEZY_TEST_MODE: 'true'

@@ -54,7 +54,7 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
       breadcrumbs={[{ label: 'Operations' }, { label: 'Transactions' }]}
       search={{
         value: f.search, onChange: (v) => set('search', v),
-        placeholder: 'Search txn id, customer, email…', width: 280,
+        placeholder: 'Search code (TXN-…), customer, email…', width: 280,
       }}
       actions={
         <Button variant="secondary" size="md" leading={<Icon name="download" size={12} />}>Export</Button>
@@ -64,7 +64,7 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
         state={stats}
         height={70}
         render={(s) => (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
             <MiniStatCard label="Total (filtered)" value={s.total} sub="all-time" />
             <MiniStatCard label="Succeeded" value={s.succeeded} sub="this view" />
             <MiniStatCard label="Pending" value={s.pending} sub="awaiting webhook" />
@@ -95,7 +95,7 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
           <>
             <Table<Transaction>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.id.slice(0, 8)}…</span> },
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
@@ -197,15 +197,15 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
     <PageShell
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-          <span className="mono" style={{ fontSize: 19 }}>{tx.id.slice(0, 12)}…</span>
+          <span className="mono" style={{ fontSize: 19 }}>{tx.code}</span>
           <StatusBadge status={tx.status} />
         </span>
       }
-      breadcrumbs={[{ label: 'Transactions', onClick: onBack }, { label: tx.id.slice(0, 12) }]}
+      breadcrumbs={[{ label: 'Transactions', onClick: onBack }, { label: tx.code }]}
       actions={
         <>
           <Button variant="secondary" size="md" leading={<Icon name="copy" size={12} />}
-            onClick={() => navigator.clipboard?.writeText(tx.id)}>Copy ID</Button>
+            onClick={() => navigator.clipboard?.writeText(tx.code)}>Copy code</Button>
           <Button variant="secondary" size="md" leading={<Icon name="refresh" size={12} />}
             onClick={async () => { await api.transactions.sync(tx.id); txQ.refetch(); }}>
             Sync
@@ -244,7 +244,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card title="Identification" padding={16}>
             <div style={{ padding: '4px 16px 14px' }}>
-              <KV k="Transaction" v={<span className="mono">{tx.id}</span>} />
+              <KV k="Transaction" v={<span className="mono">{tx.code}</span>} />
               {tx.app && (
                 <KV k="App" v={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent)' }}
@@ -262,7 +262,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
                 <KV k="Subscription" v={
                   <span style={{ cursor: 'pointer', color: 'var(--accent)' }}
                     onClick={() => onNavigate('subscription-detail', tx.subscription!.id)}>
-                    <span className="mono">{tx.subscription.id.slice(0, 12)}…</span>
+                    <span className="mono">{tx.subscription.code}</span>
                   </span>
                 } />
               )}
@@ -326,7 +326,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
               <Table
                 dense
                 columns={[
-                  { key: 'id', label: 'Event', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.id.slice(0, 8)}…</span> },
+                  { key: 'id', label: 'Event', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
                   { key: 'eventType', label: 'Type', render: (r) => <span className="mono" style={{ color: 'var(--ink-2)' }}>{r.eventType}</span> },
                   { key: 'attempts', label: 'Attempts', align: 'center', render: (r) => <span className="mono">{r.attempts}/{r.maxAttempts}</span> },
                   { key: 'deliveryStatus', label: 'Delivery', render: (r) => <StatusBadge status={r.deliveryStatus} size="sm" /> },

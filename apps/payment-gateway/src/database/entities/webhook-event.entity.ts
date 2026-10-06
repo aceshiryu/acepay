@@ -4,12 +4,17 @@ import {
 import { Provider, WebhookDeliveryStatus } from '../../common/enums';
 import { App } from './app.entity';
 import { Transaction } from './transaction.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 @Entity('webhook_events')
 @Unique('uq_webhook_provider_event', ['provider', 'providerEventId'])
 export class WebhookEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('webhook_events'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })

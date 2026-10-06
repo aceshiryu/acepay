@@ -1,5 +1,6 @@
+import { isRefundableOnline } from '../../common/payment-methods';
 import {
-  BadRequestException, Injectable, NotFoundException,
+  BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -89,6 +90,13 @@ export class PaymentsAppService {
     }
     if (!tx.providerTxId) {
       throw new BadRequestException({ error: 'no_provider_tx', message: 'Transaction has no provider id to refund' });
+    }
+    // Xendit refuses these anyway; say so plainly, before reserving anything.
+    if (isRefundableOnline(tx.paymentChannel) === false) {
+      throw new ConflictException({
+        error: 'refund_not_supported',
+        message: `${tx.paymentChannel} payments cannot be refunded online. Refund the customer by hand.`,
+      });
     }
     const amount = dto.amount ?? tx.amount;
     if (!Number.isInteger(amount) || amount <= 0) {

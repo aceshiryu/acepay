@@ -5,6 +5,7 @@ import {
 import { MerchantStatus } from '../../common/enums';
 import { numericTransformer } from '../transformers';
 import { App } from './app.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 /**
  * Someone an app collects money FOR — e.g. a BooklyPH coach. Each merchant has
@@ -20,6 +21,10 @@ import { App } from './app.entity';
 export class Merchant {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('merchants'))
+  code!: string;
 
   @Index()
   @Column({ name: 'app_id', type: 'uuid' })

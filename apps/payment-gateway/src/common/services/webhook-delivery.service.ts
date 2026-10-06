@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import axios from 'axios';
 import { Repository } from 'typeorm';
-import { decryptSecret, hmacSha256 } from '../crypto';
+import { decryptSecret } from '../crypto';
 import { LogAction, WebhookDeliveryStatus } from '../enums';
 import { App, Transaction, WebhookEvent } from '../../database/entities';
+import { signedPost } from './signed-post';
 import { TransactionLoggerService } from './transaction-logger.service';
 
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -38,8 +38,6 @@ export class WebhookDeliveryService {
     }
     const secret = decryptSecret(app.webhookSecretEnc);
     const body = JSON.stringify(event.normalizedPayload ?? {});
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = hmacSha256(secret, `${timestamp}.${body}`);
 
     const now = new Date();
     event.attempts += 1;
@@ -47,21 +45,16 @@ export class WebhookDeliveryService {
     event.lastAttemptAt = now;
 
     try {
-      const resp = await axios.post(app.webhookUrl, body, {
-        timeout: DELIVERY_TIMEOUT_MS,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-acepay-signature': `sha256=${signature}`,
-          'x-acepay-timestamp': timestamp,
-          'x-acepay-event': String(event.eventType),
-          'x-acepay-event-id': event.id,
-        },
-        validateStatus: () => true,
+      const resp = await signedPost({
+        url: app.webhookUrl,
+        secret,
+        eventType: String(event.eventType),
+        eventId: event.id,
+        body,
+        timeoutMs: DELIVERY_TIMEOUT_MS,
       });
       event.lastResponseStatus = resp.status;
-      event.lastResponseBody = typeof resp.data === 'string'
-        ? resp.data.slice(0, 4000)
-        : JSON.stringify(resp.data).slice(0, 4000);
+      event.lastResponseBody = resp.body;
 
       if (resp.status >= 200 && resp.status < 300) {
         event.deliveryStatus = WebhookDeliveryStatus.Delivered;

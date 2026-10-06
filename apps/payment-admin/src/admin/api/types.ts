@@ -34,6 +34,8 @@ export interface LoginResponse {
 // ── Apps ─────────────────────────────────────────────────────────────────
 export interface AppView {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   name: string;
   slug: string;
   apiKeyPrefix: string;
@@ -43,6 +45,10 @@ export interface AppView {
   rateLimit: number;
   billingMode: BillingMode;
   isActive: boolean;
+  /** Xendit codes the app's checkouts offer; null = every method on the Xendit account. */
+  paymentMethods?: string[] | null;
+  /** The last "Send test webhook". */
+  lastPing?: { at: string; ok: boolean | null; detail: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,6 +111,8 @@ export interface AppSummary {
 // ── Transactions ─────────────────────────────────────────────────────────
 export interface Transaction {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   customerId: string | null;
   subscriptionId: string | null;
@@ -160,6 +168,8 @@ export interface TransactionStats {
 // ── Subscriptions ────────────────────────────────────────────────────────
 export interface Subscription {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   customerId: string;
   planId: string;
@@ -180,6 +190,8 @@ export interface Subscription {
 }
 export interface Plan {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   name: string;
   slug: string;
@@ -209,6 +221,8 @@ export interface SubscriptionStats {
 // ── Customers ────────────────────────────────────────────────────────────
 export interface Customer {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   externalId: string;
   email: string;
@@ -237,6 +251,8 @@ export interface CustomersStats {
 // ── Webhook Events ───────────────────────────────────────────────────────
 export interface WebhookEvent {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   transactionId: string | null;
   provider: Provider;
@@ -307,6 +323,8 @@ export interface MarketplaceSettingsRow {
   feePercent: number | null;
   /** Minor units (centavos). */
   minPayout: number;
+  /** Range the app may set its own fee within (via its API key). null = operator-only. */
+  feeBounds: { min: number; max: number } | null;
 }
 export interface MarketplaceAppSummary extends MarketplaceSettingsRow {
   merchants: Partial<Record<MerchantStatus, number>>;
@@ -329,6 +347,8 @@ export interface MarketplaceChannel {
 
 interface MerchantBase {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string;
   appName: string;
   externalRef: string;
@@ -355,7 +375,7 @@ export interface MerchantListRow extends MerchantBase {
 }
 export interface MerchantDetail extends MerchantBase {
   payoutAccountNumber: string | null;
-  sharedWith: Array<{ merchantId: string; name: string; appId: string; appName: string; sameApp: boolean }>;
+  sharedWith: Array<{ merchantId: string; merchantCode: string; name: string; appId: string; appName: string; sameApp: boolean }>;
 }
 export interface MerchantBalance {
   merchantId: string;
@@ -368,7 +388,10 @@ export interface MerchantBalance {
 
 export interface Payout {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   runId: string | null;
+  runCode: string | null;
   merchantId: string;
   appId: string;
   amount: number;
@@ -403,6 +426,8 @@ export interface PayoutExclusion {
 }
 export interface PayoutRun {
   id: string;
+  /** Human-readable display code (e.g. TXN-000123). Show this, never `id`. */
+  code: string;
   appId: string | null;
   app?: { name: string } | null;
   status: PayoutRunStatus;
@@ -424,4 +449,32 @@ export interface PayoutRunDetail extends PayoutRun {
   amounts: Partial<Record<PayoutStatus, number>>;
   excluded: PayoutExclusion[];
   payouts: PayoutRunPayout[];
+}
+
+export type MarketplaceConfigField =
+  | 'marketplace_enabled' | 'marketplace_fee_percent' | 'marketplace_min_payout'
+  | 'marketplace_fee_min_percent' | 'marketplace_fee_max_percent';
+export interface MarketplaceConfigChange {
+  id: string;
+  appId: string;
+  app?: { name: string } | null;
+  actor: 'admin' | 'app';
+  /** Admin email, or the API-key prefix when the app made the change. */
+  actorRef: string | null;
+  field: MarketplaceConfigField;
+  oldValue: unknown;
+  newValue: unknown;
+  createdAt: string;
+}
+
+/** Template copied onto each app when it's registered. Editing it never changes existing apps. */
+export interface MarketplaceDefaults {
+  enabled: boolean;
+  feePercent: number | null;
+  feeMinPercent: number | null;
+  feeMaxPercent: number | null;
+  /** Minor units (centavos). */
+  minPayout: number;
+  updatedBy: string | null;
+  updatedAt: string | null;
 }

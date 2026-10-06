@@ -35,7 +35,7 @@ export function ActivityLogsPage({ onNavigate }: { onNavigate: Navigate }) {
     <PageShell
       title="Activity Logs"
       breadcrumbs={[{ label: 'Observability' }, { label: 'Activity Logs' }]}
-      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search action, tx id, provider event id…', width: 280 }}
+      search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search action, transaction code…', width: 280 }}
       actions={
         <>
           <Button variant="secondary" size="md" leading={<Icon name="refresh" size={12} />} onClick={() => list.refetch()}>
@@ -147,7 +147,7 @@ function ActivityLogRow({ row, onTxClick }: { row: TransactionLog; onTxClick: ()
           background: 'none', border: 'none', padding: 0, fontSize: 11.5,
           color: 'var(--accent)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
         }}
-      >{row.transactionId.slice(0, 8)}…</button>
+      >{row.transaction?.code ?? '—'}</button>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-2)' }}>
         <AppAvatar name={appName} size={14} />{appName}
       </span>

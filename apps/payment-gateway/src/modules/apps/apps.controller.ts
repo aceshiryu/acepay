@@ -5,6 +5,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminGuard } from '../../auth/admin.guard';
 import { App } from '../../database/entities';
 import { AppsService } from './apps.service';
+import { WebhookPingService } from './webhook-ping.service';
 import { CreateAppDto } from './dto/create-app.dto';
 import { RegenerateKeyDto } from './dto/regenerate-key.dto';
 import { TestSubscriptionDto } from './dto/test-subscription.dto';
@@ -12,6 +13,7 @@ import { UpdateAppDto } from './dto/update-app.dto';
 
 interface AppView {
   id: string;
+  code: string;
   name: string;
   slug: string;
   apiKeyPrefix: string;
@@ -20,6 +22,9 @@ interface AppView {
   optionalMetadata: string[];
   rateLimit: number;
   isActive: boolean;
+  /** Xendit codes; null = every method. */
+  paymentMethods: string[] | null;
+  lastPing: { at: Date; ok: boolean | null; detail: string | null } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +32,7 @@ interface AppView {
 function toView(app: App): AppView {
   return {
     id: app.id,
+    code: app.code,
     name: app.name,
     slug: app.slug,
     apiKeyPrefix: app.apiKeyPrefix,
@@ -35,6 +41,8 @@ function toView(app: App): AppView {
     optionalMetadata: app.optionalMetadata,
     rateLimit: app.rateLimit,
     isActive: app.isActive,
+    paymentMethods: app.paymentMethods ?? null,
+    lastPing: app.lastPingAt ? { at: app.lastPingAt, ok: app.lastPingOk ?? null, detail: app.lastPingDetail ?? null } : null,
     createdAt: app.createdAt,
     updatedAt: app.updatedAt,
   };
@@ -45,7 +53,10 @@ function toView(app: App): AppView {
 @Controller('admin/apps')
 @UseGuards(AdminGuard)
 export class AppsController {
-  constructor(private readonly apps: AppsService) {}
+  constructor(
+    private readonly apps: AppsService,
+    private readonly ping: WebhookPingService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Register a new app and generate its API key + webhook secret' })
@@ -124,6 +135,12 @@ export class AppsController {
   @ApiOperation({ summary: 'Reactivate a deactivated app' })
   async activate(@Param('id', ParseUUIDPipe) id: string) {
     return toView(await this.apps.setActive(id, true));
+  }
+
+  @Post(':id/webhook-test')
+  @ApiOperation({ summary: "Send a signed app.ping to the app's webhook URL now, and report what it answered" })
+  webhookTest(@Param('id', ParseUUIDPipe) id: string) {
+    return this.ping.pingById(id);
   }
 
   @Post(':id/test-subscription')

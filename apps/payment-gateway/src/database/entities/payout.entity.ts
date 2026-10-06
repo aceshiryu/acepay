@@ -6,6 +6,7 @@ import { PayoutStatus } from '../../common/enums';
 import { App } from './app.entity';
 import { Merchant } from './merchant.entity';
 import { PayoutRun } from './payout-run.entity';
+import { displayCodeColumn } from '../../common/display-code';
 
 /**
  * One transfer from a merchant's sub-account to their GCash / bank. The
@@ -20,6 +21,10 @@ import { PayoutRun } from './payout-run.entity';
 export class Payout {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /** Human-readable display code; assigned by the DB on insert (see common/display-code.ts). */
+  @Column(displayCodeColumn('payouts'))
+  code!: string;
 
   @Index()
   @Column({ name: 'run_id', type: 'uuid', nullable: true })

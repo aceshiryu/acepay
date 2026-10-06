@@ -13,15 +13,25 @@ import { LookedUpVariant, Plan } from '../api/types';
 import { EditPlanForm, RegisterPlanForm } from './plans';
 import { useAuth } from '../auth/auth-context';
 import { Navigate } from '../types';
+import { AddAppTile, AppCard } from '../app-card';
+import { AppPaymentMethodsCard } from './app-payment-methods';
 
 export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
   const apps = useFetch(() => api.apps.list(), []);
   const appList = apps.data?.data ?? [];
+  const [view, setView] = React.useState<'grid' | 'list'>('grid');
+  React.useEffect(() => {
+    try { if (localStorage.getItem('acepay.apps.view') === 'list') setView('list'); } catch { /* storage blocked */ }
+  }, []);
+  const changeView = (v: 'grid' | 'list') => {
+    setView(v);
+    try { localStorage.setItem('acepay.apps.view', v); } catch { /* storage blocked */ }
+  };
 
   return (
     <PageShell
       title="Apps"
-      breadcrumbs={[{ label: 'Configuration' }, { label: 'Apps' }]}
+      subtitle="Every app that charges customers through AcePay. Click one to see its plans, keys and payments."
       actions={
         <Button variant="primary" size="md" leading={<Icon name="plus" size={12} strokeWidth={2.4} />} onClick={() => onNavigate('register-app')}>
           Register App
@@ -30,14 +40,33 @@ export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
     >
       <IntegrationBanner onNavigate={onNavigate} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 22 }}>
         <MiniStatCard label="Total Apps" value={appList.length} sub={`${appList.filter((a) => a.isActive).length} active`} />
         <MiniStatCard label="Active" value={appList.filter((a) => a.isActive).length} sub="accepting payments" />
         <MiniStatCard label="Inactive" value={appList.filter((a) => !a.isActive).length} sub="paused" />
         <MiniStatCard label="With webhook URL" value={appList.filter((a) => a.webhookUrl).length} sub="receiving deliveries" />
       </div>
 
-      <Card title="All Apps" padding={0}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '6px 0 14px' }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4 }}>My apps</h2>
+        <ViewToggle value={view} onChange={changeView} />
+      </div>
+
+      {view === 'grid' && (
+        <>
+          {apps.loading && <LoadingBlock height={200} />}
+          {apps.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
+          {apps.data && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 18 }}>
+              {appList.map((a) => <AppCard key={a.id} app={a} onNavigate={onNavigate} />)}
+              <AddAppTile onClick={() => onNavigate('register-app')} />
+            </div>
+          )}
+        </>
+      )}
+
+      {view === 'list' && (
+      <Card padding={0}>
         {apps.loading && <LoadingBlock height={140} />}
         {apps.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
         {apps.data && (
@@ -71,6 +100,7 @@ export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
           />
         )}
       </Card>
+      )}
     </PageShell>
   );
 }
@@ -148,7 +178,7 @@ export function AppDetailPage({ appId, onNavigate, onBack }: { appId: string | n
         </>
       }
     >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
         <StatCard
           label="Total Transactions"
           value={summaryQ.data?.txCount ?? '…'}
@@ -325,7 +355,7 @@ export function AppDetailPage({ appId, onNavigate, onBack }: { appId: string | n
           <Table
             dense
             columns={[
-              { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.id.slice(0, 8)}…</span> },
+              { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
               { key: 'customer', label: 'Customer', render: (r) => r.customer?.email ?? '—' },
               { key: 'type', label: 'Type', render: (r) => <TypePill type={r.type === 'subscription_payment' ? 'subscription' : r.type} /> },
               { key: 'amount', label: 'Amount', align: 'right', render: (r) => <span className="mono" style={{ fontWeight: 600 }}>{formatAmountCompact(r.amount, r.currency)}</span> },
@@ -338,6 +368,8 @@ export function AppDetailPage({ appId, onNavigate, onBack }: { appId: string | n
           />
         )}
       </Card>
+
+      <AppPaymentMethodsCard app={app} onSaved={() => appQ.refetch()} />
 
       <div ref={settingsAnchor} style={{ scrollMarginTop: 80 }}>
         <AppSettingsCard app={app} onSaved={() => appQ.refetch()} onDelete={() => setDeleteOpen(true)} />
@@ -565,7 +597,7 @@ function TestTransactionForm({ appId, plans, onClose, onNavigate }: {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<{
-    subscriptionId: string; checkoutUrl: string; provider: string; customerId: string;
+    subscriptionId: string; subscriptionCode: string; checkoutUrl: string; provider: string; customerId: string; customerCode: string;
   } | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === planId);
@@ -624,8 +656,8 @@ function TestTransactionForm({ appId, plans, onClose, onNavigate }: {
         </div>
 
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-          <PlanFactRow label="Subscription" value={result.subscriptionId} />
-          <PlanFactRow label="Customer" value={result.customerId} />
+          <PlanFactRow label="Subscription" value={result.subscriptionCode} />
+          <PlanFactRow label="Customer" value={result.customerCode} />
           <PlanFactRow label="Provider" value={result.provider} />
         </div>
 
@@ -859,6 +891,28 @@ function DeleteAppModal({ appName, onClose, onConfirm }: {
   );
 }
 
+function ViewToggle({ value, onChange }: { value: 'grid' | 'list'; onChange: (v: 'grid' | 'list') => void }) {
+  return (
+    <div style={{ display: 'inline-flex', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 3 }}>
+      {(['grid', 'list'] as const).map((v) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          aria-label={v === 'grid' ? 'Card view' : 'Table view'}
+          aria-pressed={value === v}
+          style={{
+            width: 32, height: 28, borderRadius: 7, border: 'none',
+            background: value === v ? 'var(--accent-soft)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+        >
+          <Icon name={v} size={15} color={value === v ? 'var(--accent)' : 'var(--muted)'} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function IntegrationBanner({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <div
@@ -866,9 +920,8 @@ function IntegrationBanner({ onNavigate }: { onNavigate: Navigate }) {
       style={{
         display: 'flex', alignItems: 'center', gap: 14,
         padding: '14px 18px', marginBottom: 18,
-        background: 'linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 200%)',
-        border: '1px solid var(--border)',
-        borderLeft: '3px solid var(--accent)',
+        background: 'linear-gradient(100deg, var(--accent-soft) 0%, var(--surface) 70%)',
+        border: '1px solid var(--hairline)',
         borderRadius: 'var(--radius)',
         cursor: 'pointer',
         boxShadow: 'var(--shadow-1)',
@@ -878,7 +931,7 @@ function IntegrationBanner({ onNavigate }: { onNavigate: Navigate }) {
       onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = 'var(--shadow-1)'; }}
     >
       <div style={{
-        width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
         background: 'var(--accent)', color: 'var(--accent-ink)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>

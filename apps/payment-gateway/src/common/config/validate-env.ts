@@ -68,6 +68,17 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     );
   }
 
+  // Marketplace: the master account's Business ID, when given, must look like
+  // one (24 hex characters). A wrong value only fails later, at the first fee
+  // split, with an opaque Xendit validation error.
+  const platformId = config.XENDIT_PLATFORM_ACCOUNT_ID;
+  if (typeof platformId === 'string' && platformId.trim() !== '' && !/^[0-9a-f]{24}$/i.test(platformId.trim())) {
+    errors.push(
+      '  - XENDIT_PLATFORM_ACCOUNT_ID must be your Xendit Business ID: 24 hex characters ' +
+        '(Xendit dashboard → Settings → Business profile)',
+    );
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `AcePay gateway env validation failed:\n${errors.join('\n')}\n` +

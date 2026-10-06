@@ -148,9 +148,12 @@ export class XenditPlatformClient {
 
   /** One route: `percent`% of each payment goes to the platform account. */
   async createPlatformFeeSplitRule(p: { percent: number; currency: string }): Promise<string> {
+    // Xendit allows only letters, digits and spaces in a split rule's name and
+    // description (no "%", ".", "-"), so 12.5% is written "12 point 5 percent".
+    const pct = `${String(p.percent).replace('.', ' point ')} percent`;
     const resp = await this.http<{ id?: string }>('POST', '/split_rules', {
-      name: `AcePay platform fee ${p.percent}%`,
-      description: `Routes ${p.percent}% of each marketplace payment to the platform account`,
+      name: xenditText(`AcePay platform fee ${pct}`),
+      description: xenditText(`Routes ${pct} of each marketplace payment to the platform account`),
       routes: [{
         percent_amount: p.percent,
         currency: p.currency.toUpperCase(),
@@ -176,6 +179,8 @@ export class XenditPlatformClient {
     successRedirectUrl: string;
     failureRedirectUrl: string;
     metadata: Record<string, string>;
+    /** Only these methods on the checkout (Xendit codes); omitted = every method on. */
+    paymentMethods?: readonly string[] | null;
   }): Promise<XenditSplitInvoice> {
     const resp = await this.http<Record<string, unknown>>('POST', '/v2/invoices', {
       external_id: p.externalId,
@@ -186,6 +191,7 @@ export class XenditPlatformClient {
       success_redirect_url: p.successRedirectUrl,
       failure_redirect_url: p.failureRedirectUrl,
       metadata: p.metadata,
+      ...(p.paymentMethods && p.paymentMethods.length > 0 ? { payment_methods: [...p.paymentMethods] } : {}),
     }, {
       'for-user-id': p.forUserId,
       ...(p.splitRuleId ? { 'with-split-rule': p.splitRuleId } : {}),
@@ -401,4 +407,9 @@ function mapPayout(resp: Record<string, unknown> | null | undefined): XenditPayo
     estimatedArrivalAt: eta ? new Date(eta) : null,
     raw: resp,
   };
+}
+
+/** Letters, digits and single spaces only: what Xendit accepts in split rule text. */
+export function xenditText(text: string): string {
+  return text.replace(/[^a-zA-Z0-9 ]+/g, ' ').replace(/ +/g, ' ').trim();
 }

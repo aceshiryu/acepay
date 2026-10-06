@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -6,7 +6,9 @@ import {
 } from '../../common/enums';
 import { App, Merchant, Payout, Transaction } from '../../database/entities';
 import { XenditPlatformClient } from '../../payment-providers/xendit-platform.client';
+import { AppConfigService, feeBounds, snapshot } from './app-config.service';
 import { MarketplaceSettingsDto } from './dto/merchant.dto';
+import { validateMarketplaceSettings } from './marketplace-defaults.service';
 
 /** Operator-side marketplace config and reporting. */
 @Injectable()
@@ -17,23 +19,32 @@ export class MarketplaceAdminService {
     @InjectRepository(Transaction) private readonly transactions: Repository<Transaction>,
     @InjectRepository(Payout) private readonly payouts: Repository<Payout>,
     private readonly xendit: XenditPlatformClient,
+    private readonly appConfig: AppConfigService,
   ) {}
 
-  /** Turns marketplace mode on/off for one app. Enabling requires a fee —
-   *  there's no global default (BooklyPH is 12%; other apps choose their own). */
-  async updateSettings(appId: string, dto: MarketplaceSettingsDto) {
+  /** Turns marketplace mode on/off for one app and sets its fee, minimum
+   *  payout and the fee range the app may later choose within. Enabling
+   *  requires a fee — there's no global default (BooklyPH is 12%). Every
+   *  change is written to the config audit log. */
+  async updateSettings(appId: string, dto: MarketplaceSettingsDto, adminEmail: string | null = null) {
     const app = await this.apps.findOne({ where: { id: appId } });
     if (!app) throw new NotFoundException({ error: 'app_not_found', message: `App ${appId} not found` });
+    const before = snapshot(app);
+
     if (dto.feePercent !== undefined) app.marketplaceFeePercent = dto.feePercent;
     if (dto.minPayout !== undefined) app.marketplaceMinPayout = dto.minPayout;
-    if (dto.enabled && app.marketplaceFeePercent == null) {
-      throw new BadRequestException({
-        error: 'marketplace_fee_required',
-        message: 'Set a platform fee % for this app before enabling marketplace payments',
-      });
-    }
+    if (dto.feeMinPercent !== undefined) app.marketplaceFeeMinPercent = dto.feeMinPercent;
+    if (dto.feeMaxPercent !== undefined) app.marketplaceFeeMaxPercent = dto.feeMaxPercent;
+
+    validateMarketplaceSettings({
+      enabled: dto.enabled,
+      feePercent: app.marketplaceFeePercent ?? null,
+      feeMinPercent: app.marketplaceFeeMinPercent ?? null,
+      feeMaxPercent: app.marketplaceFeeMaxPercent ?? null,
+    });
     app.marketplaceEnabled = dto.enabled;
     await this.apps.save(app);
+    await this.appConfig.record(app.id, 'admin', adminEmail, before, snapshot(app));
     return this.settingsView(app);
   }
 
@@ -107,6 +118,7 @@ export class MarketplaceAdminService {
       appSlug: a.slug,
       marketplaceEnabled: a.marketplaceEnabled,
       feePercent: a.marketplaceFeePercent ?? null,
+      feeBounds: feeBounds(a),
       minPayout: a.marketplaceMinPayout,
     };
   }
