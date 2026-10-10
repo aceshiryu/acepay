@@ -14,7 +14,7 @@ import {
 import { ConfirmPayoutRunDto, CreatePayoutRunDto, ListPayoutRunsDto } from './dto/payout-run.dto';
 import { MerchantEventsService } from './merchant-events.service';
 import { payoutView } from './merchants.service';
-import { canTransitionPayout, mapWithConcurrency, settledRunStatus } from './marketplace.util';
+import { canTransitionPayout, errorMessage, mapWithConcurrency, settledRunStatus } from './marketplace.util';
 
 const PAYOUT_CURRENCY = 'PHP';
 /** Balances move all the time; a preview older than this must be rebuilt. */
@@ -36,11 +36,6 @@ function isDefinitiveRejection(err: unknown): boolean {
 function errorCode(err: unknown): string | null {
   const e = err as { errorCode?: string; code?: string };
   return e?.errorCode ?? e?.code ?? null;
-}
-
-function errorMessage(err: unknown): string {
-  const e = err as { errorMessage?: string; message?: string };
-  return String(e?.errorMessage ?? e?.message ?? err).slice(0, 500);
 }
 
 /**
@@ -76,8 +71,8 @@ export class PayoutRunsService {
     if (open) {
       throw new ConflictException({
         error: 'payout_run_open',
-        message: `Payout run ${open.id} is still ${open.status}. Finish or discard it before starting another.`,
-        details: { runId: open.id },
+        message: `Payout run ${open.code} is still ${open.status}. Finish or discard it before starting another.`,
+        details: { runId: open.id, runCode: open.code },
       });
     }
     if (dto.appId) {

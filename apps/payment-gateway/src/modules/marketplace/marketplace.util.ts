@@ -100,3 +100,9 @@ export function maskAccount(accountNumber: string | null | undefined): string | 
   const last4 = accountNumber.slice(-4);
   return `•••• ${last4}`;
 }
+
+/** Readable message from a provider/SDK error, capped for storage. */
+export function errorMessage(err: unknown): string {
+  const e = err as { errorMessage?: string; message?: string };
+  return String(e?.errorMessage ?? e?.message ?? err).slice(0, 500);
+}

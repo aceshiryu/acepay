@@ -12,7 +12,7 @@ import { XenditPlatformClient } from '../../payment-providers/xendit-platform.cl
 import { CreateMarketplacePaymentDto } from './dto/marketplace-payment.dto';
 import { MerchantsService } from './merchants.service';
 import {
-  effectiveFeePercent, MarketplaceFeeNotSetError, splitAmount,
+  effectiveFeePercent, errorMessage, MarketplaceFeeNotSetError, splitAmount,
 } from './marketplace.util';
 import { SplitRulesService } from './split-rules.service';
 
@@ -71,7 +71,7 @@ export class MarketplacePaymentsService {
     // fee it was priced at, instead of handing back a dead payment.
     if (existing) {
       existing.status = TransactionStatus.Pending;
-      existing.splitStatus = existing.splitRuleId ? 'pending' : null;
+      existing.splitStatus = null;
       const retried = await this.transactions.save(existing);
       await this.txLogger.log({
         transaction: retried, action: LogAction.PaymentCreated, actor: LogActor.App,
@@ -92,8 +92,6 @@ export class MarketplacePaymentsService {
     }
     const { platformFee, merchantAmount } = splitAmount(dto.amount, feePercent);
     const currency = dto.currency.toUpperCase();
-    // A 0% rate needs no split at all.
-    const splitRuleId = feePercent > 0 ? await this.splitRules.getOrCreate(feePercent, currency) : null;
 
     let tx = this.transactions.create({
       appId: app.id,
@@ -112,8 +110,10 @@ export class MarketplacePaymentsService {
       platformFeePercent: feePercent,
       platformFeeAmount: platformFee,
       merchantAmount,
-      splitRuleId,
-      splitStatus: splitRuleId ? 'pending' : null,
+      // Resolved in sendInvoice, after the row exists — so a failure there
+      // (bad key, Xendit down) still leaves a Failed transaction behind.
+      splitRuleId: null,
+      splitStatus: null,
     });
     try {
       tx = await this.transactions.save(tx);
@@ -137,9 +137,13 @@ export class MarketplacePaymentsService {
     app: App, merchant: Merchant, tx: Transaction, dto: CreateMarketplacePaymentDto,
   ): Promise<MarketplacePaymentView> {
     const currency = tx.currency;
-    const splitRuleId = tx.splitRuleId ?? null;
     let invoice;
     try {
+      // A 0% rate needs no split at all. A retry reuses the rule it already has.
+      if (!tx.splitRuleId && (tx.platformFeePercent ?? 0) > 0) {
+        tx.splitRuleId = await this.splitRules.getOrCreate(tx.platformFeePercent as number, currency);
+      }
+      const splitRuleId = tx.splitRuleId ?? null;
       invoice = await this.xendit.createSplitInvoice({
         forUserId: merchant.xenditAccountId as string,
         splitRuleId,
@@ -162,9 +166,15 @@ export class MarketplacePaymentsService {
       tx.status = TransactionStatus.Failed;
       tx.splitStatus = null;
       await this.transactions.save(tx);
+      await this.txLogger.log({
+        transaction: tx, action: LogAction.PaymentFailed, actor: LogActor.System,
+        statusFrom: TransactionStatus.Pending, statusTo: TransactionStatus.Failed,
+        details: { stage: 'provider_send', error: errorMessage(err) },
+      });
       throw err;
     }
 
+    tx.splitStatus = tx.splitRuleId ? 'pending' : null;
     tx.providerTxId = invoice.id;
     tx.checkoutUrl = invoice.invoiceUrl;
     tx.providerCreatedAt = invoice.created;

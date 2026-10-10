@@ -102,10 +102,11 @@ describe('MarketplacePaymentsService (POST /v1/payments)', () => {
     expect(created).toEqual(expect.objectContaining({
       appId: BOOKLY.id, provider: Provider.Xendit, type: TransactionType.Payment,
       merchantId: 'm-1', providerAccountId: 'sub-1', platformFeePercent: 12, platformFeeAmount: 6000,
-      merchantAmount: 44000, splitRuleId: 'splitru_12', splitStatus: 'pending', idempotencyKey: 'booking-1',
+      merchantAmount: 44000, idempotencyKey: 'booking-1',
     }));
     const final = saved[saved.length - 1];
     expect(final.providerTxId).toBe('inv-1');
+    expect(final).toEqual(expect.objectContaining({ splitRuleId: 'splitru_12', splitStatus: 'pending' }));
     expect(txLogger.log.mock.calls.map((c) => c[0].action)).toEqual([LogAction.PaymentCreated, LogAction.PaymentProviderSent]);
   });
 
@@ -182,6 +183,36 @@ describe('MarketplacePaymentsService (POST /v1/payments)', () => {
     const last = saved[saved.length - 1];
     expect(last.status).toBe(TransactionStatus.Failed);
     expect(last.splitStatus).toBeNull();
+  });
+
+  it('saves a Failed row (with the reason) when the split rule cannot be created', async () => {
+    splitRules.getOrCreate.mockRejectedValue(new Error('The API key provided is invalid.'));
+    await expect(service.create(BOOKLY, dto())).rejects.toThrow(/API key/);
+
+    // The row exists before Xendit is touched, so the failure is visible in the admin.
+    expect(transactions.create).toHaveBeenCalledTimes(1);
+    const last = saved[saved.length - 1];
+    expect(last).toEqual(expect.objectContaining({
+      status: TransactionStatus.Failed, splitRuleId: null, splitStatus: null,
+    }));
+    expect(xendit.createSplitInvoice).not.toHaveBeenCalled();
+    const failedLog = txLogger.log.mock.calls.map((c) => c[0]).find((l) => l.action === LogAction.PaymentFailed);
+    expect(failedLog.details).toEqual({ stage: 'provider_send', error: 'The API key provided is invalid.' });
+  });
+
+  it('a retry after a split-rule failure resolves the rule and invoices the same row', async () => {
+    transactions.findOne.mockResolvedValue({
+      id: 'tx-failed', appId: BOOKLY.id, merchantId: 'm-1', amount: 50000, currency: 'PHP',
+      status: TransactionStatus.Failed, providerTxId: null, splitRuleId: null, splitStatus: null,
+      platformFeeAmount: 6000, merchantAmount: 44000, platformFeePercent: 12, checkoutUrl: null,
+      description: 'Session', createdAt: new Date(),
+    });
+    const view = await service.create(BOOKLY, dto());
+    expect(view).toEqual(expect.objectContaining({ id: 'tx-failed', status: TransactionStatus.Pending }));
+    expect(splitRules.getOrCreate).toHaveBeenCalledWith(12, 'PHP');
+    expect(xendit.createSplitInvoice).toHaveBeenCalledWith(expect.objectContaining({ externalId: 'tx-failed', splitRuleId: 'splitru_12' }));
+    expect(transactions.create).not.toHaveBeenCalled();
+    expect(saved[saved.length - 1].splitStatus).toBe('pending');
   });
 
   it('re-invoices the same row when a retry follows a provider_error (no Xendit invoice yet)', async () => {
