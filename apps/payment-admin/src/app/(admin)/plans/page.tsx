@@ -1,8 +1,8 @@
 'use client';
 
-import { PlansPage } from '../../../admin/pages/plans';
-import { useNavigate } from '../../../admin/navigate';
+import { RedirectTo } from '@/admin/redirects';
 
+/** Replaced by the per-app pages under /apps/<id>/. */
 export default function Page() {
-  return <PlansPage onNavigate={useNavigate()} />;
+  return <RedirectTo href="/dashboard" />;
 }

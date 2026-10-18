@@ -38,6 +38,7 @@ export class WebhookEventsAdminService {
   async stats(opts: WebhookStatsDto) {
     const windowHours = opts.windowHours ?? 24;
     const since = new Date(Date.now() - windowHours * 3_600_000);
+    const app = opts.appId ? { appId: opts.appId } : {};
 
     const [
       deliveredInWindow,
@@ -48,18 +49,20 @@ export class WebhookEventsAdminService {
     ] = await Promise.all([
       this.events.count({
         where: {
+          ...app,
           deliveryStatus: WebhookDeliveryStatus.Delivered,
           deliveredAt: MoreThanOrEqual(since),
         },
       }),
-      this.events.count({ where: { deliveryStatus: WebhookDeliveryStatus.Pending } }),
-      this.events.count({ where: { deliveryStatus: WebhookDeliveryStatus.Failed } }),
-      this.events.count({ where: { deliveryStatus: WebhookDeliveryStatus.Exhausted } }),
+      this.events.count({ where: { ...app, deliveryStatus: WebhookDeliveryStatus.Pending } }),
+      this.events.count({ where: { ...app, deliveryStatus: WebhookDeliveryStatus.Failed } }),
+      this.events.count({ where: { ...app, deliveryStatus: WebhookDeliveryStatus.Exhausted } }),
       this.events.createQueryBuilder('evt')
         .select(`AVG(EXTRACT(EPOCH FROM (evt.delivered_at - evt.created_at)) * 1000)`, 'avgMs')
         .where('evt.delivery_status = :st', { st: WebhookDeliveryStatus.Delivered })
         .andWhere('evt.delivered_at IS NOT NULL')
         .andWhere('evt.delivered_at >= :since', { since })
+        .andWhere(opts.appId ? 'evt.app_id = :appId' : '1=1', { appId: opts.appId })
         .getRawOne<{ avgMs: string | null }>(),
     ]);
 

@@ -201,7 +201,7 @@ function NotifRow({ notif, unread, last, onOpen, onMarkRead }: {
             onClick={onOpen}
             style={{
               background: 'none', border: 'none', padding: 0, marginTop: 6,
-              fontSize: 11.5, color: 'var(--accent)', fontWeight: 550, cursor: 'pointer',
+              fontSize: 11.5, color: 'var(--accent-text)', fontWeight: 550, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 4,
             }}
           >

@@ -5,7 +5,9 @@ import * as api from '../api/client';
 import { actionIcon, formatAmountCompact, formatRelative, formatTime, pickPrimary } from '../api/format';
 import { GuardedView, LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
-import { ProviderHealth, TransactionLog } from '../api/types';
+import { TransactionLog } from '../api/types';
+import { ProviderHealthRow } from '../api/client';
+import { PROVIDER_THEME } from '../provider-theme';
 import { PageShell } from '../layout';
 import { Button, Card, GatewayCard, HeaderPill, Icon } from '../primitives';
 import { AppCard } from '../app-card';
@@ -14,7 +16,7 @@ import { Navigate } from '../types';
 
 export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
   const dashboard = useFetch(() => api.stats.dashboard(), []);
-  const providers = useFetch(() => api.stats.providers(), []);
+  const providers = useFetch(() => api.settings.health(), []);
   const activity = useFetch(() => api.logs.list({ pageSize: 10 }), []);
   const apps = useFetch(() => api.apps.list(), []);
 
@@ -37,7 +39,7 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
           </Button>
           <Button variant="primary" size="md" leading={<Icon name="plus" size={12} strokeWidth={2.4} />}
             onClick={() => onNavigate('register-app')}>
-            Register App
+            Add app
           </Button>
         </>
       }
@@ -121,9 +123,8 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
                 <MiniStatCard
                   label="Failed Webhooks Pending"
                   value={d.failedWebhooksPending}
-                  sub="Tap to review"
+                  sub="Open an app → Webhook events"
                   warning={d.failedWebhooksPending > 0}
-                  onClick={() => onNavigate('webhooks')}
                 />
               </div>
             </>
@@ -158,14 +159,11 @@ export function DashboardPage({ onNavigate }: { onNavigate: Navigate }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div style={{ fontSize: 15, fontWeight: 650 }}>Providers</div>
-            <button onClick={() => onNavigate('gateways')} style={linkBtn}>
-              All gateways <Icon name="arrow" size={11} strokeWidth={2} />
-            </button>
           </div>
           {providers.loading && <LoadingBlock height={140} />}
           {providers.error && <div style={{ color: 'var(--bad)', fontSize: 12 }}>{providers.error.message}</div>}
           {providers.data?.providers.map((p) => (
-            <ProviderCard key={p.name} provider={p} onClick={() => onNavigate('gateways')} />
+            <ProviderCard key={p.provider} provider={p} onClick={() => onNavigate('provider-config', p.provider)} />
           ))}
         </div>
       </div>
@@ -211,26 +209,35 @@ function trickle(value: number): number[] {
 }
 
 const linkBtn: React.CSSProperties = {
-  background: 'none', border: 'none', padding: 0, fontSize: 12.5, color: 'var(--accent)',
+  background: 'none', border: 'none', padding: 0, fontSize: 12.5, color: 'var(--accent-text)',
   display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, cursor: 'pointer',
 };
 
-function ProviderCard({ provider, onClick }: { provider: ProviderHealth; onClick: () => void }) {
-  const statusInfo = {
-    ok:   { dot: 'var(--ok)',   label: 'Healthy' },
-    warn: { dot: 'var(--warn)', label: 'Degraded' },
-    bad:  { dot: 'var(--bad)',  label: 'Down' },
-  }[provider.status];
-  const isXendit = provider.name === 'xendit';
+const HEALTH: Record<ProviderHealthRow['status'], { label: string; dot: string }> = {
+  ok:             { label: 'Healthy',     dot: 'var(--ok)' },
+  no_recent:      { label: 'Quiet',       dot: 'var(--warn)' },
+  never_received: { label: 'No webhooks', dot: 'var(--muted-2)' },
+  misconfigured:  { label: 'Needs setup', dot: 'var(--bad)' },
+};
+
+const PROVIDER_ICON = { lemonsqueezy: 'card', xendit: 'wallet', paymongo: 'bank' } as const;
+
+/** Provider health at a glance (what the old Gateways page showed); opens the provider's config. */
+function ProviderCard({ provider, onClick }: { provider: ProviderHealthRow; onClick: () => void }) {
+  const h = HEALTH[provider.status];
+  const t = PROVIDER_THEME[provider.provider];
   return (
     <GatewayCard
       compact
-      color={isXendit ? 'var(--brand-xendit)' : 'var(--brand-lemon)'}
-      icon={<Icon name={isXendit ? 'wallet' : 'card'} size={16} color="#fff" strokeWidth={2} />}
-      title={isXendit ? 'Xendit' : 'Lemon Squeezy'}
-      badge={<HeaderPill dot={statusInfo.dot}>{statusInfo.label}</HeaderPill>}
+      color={t.brand}
+      icon={<Icon name={PROVIDER_ICON[provider.provider]} size={16} color="#fff" strokeWidth={2} />}
+      title={t.label}
+      badge={<HeaderPill dot={h.dot}>{h.label}</HeaderPill>}
       rows={[
-        { label: 'Region', value: isXendit ? 'Philippines' : 'Global' },
+        { label: 'Config', value: provider.envOk
+            ? <span style={{ color: 'var(--ok)' }}>Configured</span>
+            : <span style={{ color: 'var(--bad)' }}>{provider.missingEnv.length} missing</span> },
+        { label: 'Webhooks (24h)', value: provider.count24h },
         { label: 'Last webhook', value: formatRelative(provider.lastWebhookAt) },
       ]}
       onClick={onClick}
@@ -269,7 +276,7 @@ function DashboardActivityRow({ row, onTxClick }: { row: TransactionLog; onTxCli
         onClick={(e) => { e.stopPropagation(); onTxClick && onTxClick(); }}
         style={{
           background: 'none', border: 'none', padding: 0, fontSize: 11.5,
-          color: 'var(--accent)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
+          color: 'var(--accent-text)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
           overflow: 'hidden', textOverflow: 'ellipsis',
         }}
       >{row.transaction?.code ?? '—'}</button>

@@ -1,8 +1,8 @@
 'use client';
 
-import { SubscriptionsPage } from '../../../admin/pages/subscriptions';
-import { useNavigate } from '../../../admin/navigate';
+import { RedirectTo } from '@/admin/redirects';
 
+/** Replaced by the per-app pages under /apps/<id>/. */
 export default function Page() {
-  return <SubscriptionsPage onNavigate={useNavigate()} />;
+  return <RedirectTo href="/dashboard" />;
 }

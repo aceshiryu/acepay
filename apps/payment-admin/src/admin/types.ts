@@ -20,7 +20,10 @@ export type RoutePage =
   | 'webhook-detail'
   | 'logs'
   | 'notifications'
-  | 'settings';
+  | 'integrations'
+  | 'provider-config'
+  | 'refunds'
+  | 'app-settings';
 
 export type Navigate = (page: RoutePage, param?: string | null, ctx?: string | null) => void;
 

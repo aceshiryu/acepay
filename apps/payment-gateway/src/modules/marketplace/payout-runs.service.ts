@@ -308,6 +308,8 @@ export class PayoutRunsService {
       // A retried build starts clean.
       await this.payouts.delete({ runId, status: PayoutStatus.Draft });
 
+      // Archived apps are deliberately included: archiving hides an app, it
+      // doesn't cancel what its merchants are owed.
       const apps = await this.apps.find({
         where: run.appId ? { id: run.appId, marketplaceEnabled: true } : { marketplaceEnabled: true },
       });

@@ -10,20 +10,22 @@ import { PageShell } from '../layout';
 import { Button, Card, FilterSelect, Icon, KV, ProviderTag, StatusBadge, Table, AppAvatar } from '../primitives';
 import { DetailMicro, MiniStatCard, Modal, MovementTimeline } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, scopedProvider, useAppScope } from '../app-scope';
 
 const PAGE_SIZE = 20;
 
 export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
+  const scope = useAppScope();
   const [appFilter, setAppFilter] = React.useState('All');
   const [providerFilter, setProviderFilter] = React.useState('All');
   const [statusFilter, setStatusFilter] = React.useState('All');
   const [page, setPage] = React.useState(1);
 
-  const apps = useFetch(() => api.apps.list(), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
   const query: api.SubListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
-    provider: providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
+    provider: scope ? scopedProvider(scope) : providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
     status: statusFilter !== 'All' ? statusFilter.toLowerCase().replace(' ', '_') : undefined,
   };
   const list = useFetch(() => api.subscriptions.list(query), [JSON.stringify(query)]);
@@ -34,7 +36,7 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <PageShell
       title="Subscriptions"
-      breadcrumbs={[{ label: 'Operations' }, { label: 'Subscriptions' }]}
+      breadcrumbs={scope ? scopeCrumbs(scope, 'Subscriptions') : [{ label: 'Operations' }, { label: 'Subscriptions' }]}
     >
       <GuardedView
         state={stats}
@@ -58,8 +60,8 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />
-        <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit']} />
+        {!scope && <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />}
+        {!scope && <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit', { value: 'paymongo', label: 'PayMongo' }]} />}
         <FilterSelect label="Status"   value={statusFilter}   onChange={(v) => { setStatusFilter(v); setPage(1); }}   options={['All', 'Active', 'Past Due', 'Canceled', 'Paused', 'Expired']} />
         <div style={{ flex: 1 }} />
         {list.data && (
@@ -74,7 +76,7 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
           <>
             <Table<Subscription>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
@@ -99,6 +101,7 @@ export function SubscriptionsPage({ onNavigate }: { onNavigate: Navigate }) {
               rows={list.data.data}
               getRowKey={(r) => r.id}
               onRowClick={(r) => onNavigate('subscription-detail', r.id)}
+              hide={scope ? ['app'] : undefined}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
           </>
@@ -219,6 +222,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
         </>
       }
     >
+      <RenewalsUnavailableBanner metadata={sub.metadata} />
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius)', padding: '20px 24px',
@@ -257,7 +261,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
             <KV k="Subscription" v={<span className="mono">{sub.code}</span>} />
             {sub.app && (
               <KV k="App" v={
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent)' }}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent-text)' }}
                   onClick={() => onNavigate('app-detail', sub.app!.id)}>
                   <AppAvatar name={sub.app.name} size={16} />{sub.app.name}
                 </span>
@@ -281,7 +285,7 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
               <Table
                 dense
                 columns={[
-                  { key: 'id', label: 'Transaction', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
+                  { key: 'id', label: 'Transaction', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)' }}>{r.code}</span> },
                   { key: 'date', label: 'Date', render: (r) => <span style={{ color: 'var(--muted)' }}>{formatDateTime(r.createdAt)}</span> },
                   { key: 'amount', label: 'Amount', align: 'right', render: (r) => <span className="mono" style={{ fontWeight: 600 }}>{formatAmountCompact(r.amount, r.currency)}</span> },
                   { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} size="sm" /> },
@@ -321,5 +325,28 @@ export function SubscriptionDetailPage({ subId, onNavigate, onBack }: { subId: s
         </Modal>
       )}
     </PageShell>
+  );
+}
+
+/** Shown when AcePay knows this subscription's renewals can't be charged —
+ *  e.g. the first payment was made with GCash, which leaves a one-time payment
+ *  method. Flagged at first payment, so it shows before the renewal fails. */
+function RenewalsUnavailableBanner({ metadata }: { metadata: Record<string, unknown> | null | undefined }) {
+  if (!metadata?.recurringUnavailable) return null;
+  const detail = typeof metadata.recurringUnavailableDetail === 'string'
+    ? metadata.recurringUnavailableDetail
+    : 'No reusable payment method is saved, so renewals cannot be charged.';
+  return (
+    <div role="alert" style={{
+      marginBottom: 16, padding: '12px 14px', borderRadius: 8,
+      background: 'var(--warn-soft)', color: 'var(--ink-2)', fontSize: 12.5, lineHeight: 1.55,
+      display: 'flex', gap: 10, alignItems: 'flex-start',
+    }}>
+      <Icon name="warn" size={15} color="var(--warn)" style={{ marginTop: 1, flexShrink: 0 }} />
+      <div>
+        <strong>Renewals can't be charged.</strong> {detail} Ask the customer to subscribe again with a card;
+        the app can see this on the subscription as <span className="mono">metadata.recurringUnavailable</span>.
+      </div>
+    </div>
   );
 }

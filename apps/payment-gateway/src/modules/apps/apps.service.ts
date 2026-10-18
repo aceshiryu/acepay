@@ -1,15 +1,18 @@
 import { normalizePaymentMethods } from '../../common/payment-methods';
 import {
-  BadRequestException, ConflictException, Injectable, NotFoundException,
+  BadRequestException, ConflictException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import {
   apiKeyPrefix, encryptSecret, generateApiKey, generateWebhookSecret, sha256,
 } from '../../common/crypto';
-import { BillingMode, PlanRegion, Provider } from '../../common/enums';
-import { App, Plan } from '../../database/entities';
+import { BillingMode, PayoutStatus, PlanInterval, PlanRegion, Provider, SubscriptionStatus } from '../../common/enums';
+import { App, Payout, Plan, Subscription } from '../../database/entities';
+import { PlatformSetting } from '../../database/entities/platform-setting.entity';
+import { appPrefsKey } from './app-preferences.service';
 import { LemonsqueezyAdapter } from '../../payment-providers/lemonsqueezy.adapter';
+import { PaymongoAdapter } from '../../payment-providers/paymongo.adapter';
 import { CustomersAppService } from '../customers/customers-app.service';
 import { AppConfigService, snapshot } from '../marketplace/app-config.service';
 import { MarketplaceDefaultsService } from '../marketplace/marketplace-defaults.service';
@@ -36,10 +39,13 @@ export interface SandboxRunResult {
 
 @Injectable()
 export class AppsService {
+  private readonly logger = new Logger(AppsService.name);
+
   constructor(
     @InjectRepository(App) private readonly apps: Repository<App>,
     private readonly dataSource: DataSource,
     private readonly lsAdapter: LemonsqueezyAdapter,
+    private readonly paymongo: PaymongoAdapter,
     private readonly customersApp: CustomersAppService,
     private readonly subscriptionsApp: SubscriptionsAppService,
     private readonly marketplaceDefaults: MarketplaceDefaultsService,
@@ -62,6 +68,23 @@ export class AppsService {
         message: 'One-time-payment apps cannot have subscription plans',
       });
     }
+    if (dto.provider) {
+      // Xendit and PayMongo apps can charge without plans (marketplace /
+      // one-time payments); Lemon Squeezy only takes money through plans.
+      if (dto.provider === Provider.Lemonsqueezy && (!dto.plans || dto.plans.length === 0)) {
+        throw new BadRequestException({
+          error: 'plans_required',
+          message: `Add at least one plan — ${dto.provider} apps take payments through subscription plans`,
+        });
+      }
+      const other = (dto.plans ?? []).find((p) => p.provider !== dto.provider);
+      if (other) {
+        throw new BadRequestException({
+          error: 'provider_mismatch',
+          message: `Every plan must use ${dto.provider}; "${other.title}" uses ${other.provider}`,
+        });
+      }
+    }
     // Plans are optional at registration — an app can be registered first and
     // have plans added later from the Plans page.
 
@@ -72,6 +95,8 @@ export class AppsService {
       title: string; description?: string; region: PlanRegion;
       provider: Provider; providerPlanId: string;
       amount: number; currency: string; interval: string; intervalCount: number;
+      /** PayMongo plan still to be created/looked up (after validation). */
+      pendingPaymongo?: boolean;
     }> = [];
     for (const p of dto.plans ?? []) {
       if (p.provider === Provider.Lemonsqueezy) {
@@ -115,6 +140,23 @@ export class AppsService {
           amount: p.amount, currency: p.currency,
           interval: p.interval, intervalCount: p.intervalCount ?? 1,
         });
+      } else if (p.provider === Provider.Paymongo) {
+        // Created in PayMongo below, after the slug check — the PayMongo plan
+        // is a real side effect, so nothing is created if registration is
+        // going to be rejected anyway. Validate the fields now for a clean 400.
+        if (!p.paymongoPlanId && (!p.amount || !p.currency || !p.interval)) {
+          throw new BadRequestException({
+            error: 'paymongo_plan_fields_required',
+            message: 'PayMongo plans need amount, currency and interval (or paymongoPlanId of a plan you already made in PayMongo)',
+          });
+        }
+        resolvedPlans.push({
+          title: p.title, description: p.description, region: p.region,
+          provider: Provider.Paymongo, providerPlanId: p.paymongoPlanId ?? '',
+          amount: p.amount ?? 0, currency: p.currency ?? 'PHP',
+          interval: p.interval ?? PlanInterval.Monthly, intervalCount: p.intervalCount ?? 1,
+          pendingPaymongo: true,
+        });
       } else {
         throw new BadRequestException({
           error: 'unsupported_provider',
@@ -144,6 +186,20 @@ export class AppsService {
       });
     }
 
+    for (const rp of resolvedPlans) {
+      if (!rp.pendingPaymongo) continue;
+      const pm = await this.paymongo.resolvePlan({
+        existingPlanId: rp.providerPlanId || null,
+        name: `${dto.name} — ${rp.title}`, description: rp.description,
+        amount: rp.amount, currency: rp.currency,
+        interval: rp.interval as PlanInterval, intervalCount: rp.intervalCount,
+      });
+      Object.assign(rp, {
+        providerPlanId: pm.planId, amount: pm.amount, currency: pm.currency,
+        interval: pm.interval, intervalCount: pm.intervalCount, pendingPaymongo: false,
+      });
+    }
+
     const apiKey = generateApiKey(slug, 'live');
     const webhookSecret = generateWebhookSecret();
 
@@ -165,9 +221,16 @@ export class AppsService {
         rateLimit: dto.rateLimit ?? 100,
         billingMode: dto.billingMode,
         isActive: dto.isActive ?? true,
+        paymentMethods: dto.paymentMethods !== undefined ? normalizePaymentMethods(dto.paymentMethods) : null,
         ...marketplace,
       });
       const savedApp = await manager.save(app);
+      if (dto.provider) {
+        // Remember the provider the app was added under (apps have no column for it).
+        await manager.save(manager.create(PlatformSetting, {
+          key: appPrefsKey(savedApp.id), value: { provider: dto.provider, hiddenMenus: [] },
+        }));
+      }
 
       const savedPlans: Plan[] = [];
       for (const rp of resolvedPlans) {
@@ -195,8 +258,12 @@ export class AppsService {
     return created;
   }
 
-  findAll(): Promise<App[]> {
-    return this.apps.find({ order: { createdAt: 'DESC' } });
+  /** Archived apps are left out unless `archived` asks for only them. */
+  findAll(opts: { archived?: boolean } = {}): Promise<App[]> {
+    return this.apps.find({
+      where: { archivedAt: opts.archived ? Not(IsNull()) : IsNull() },
+      order: opts.archived ? { archivedAt: 'DESC' } : { createdAt: 'DESC' },
+    });
   }
 
   async findOneOrFail(id: string): Promise<App> {
@@ -226,8 +293,91 @@ export class AppsService {
 
   async setActive(id: string, isActive: boolean): Promise<App> {
     const app = await this.findOneOrFail(id);
+    if (isActive && app.archivedAt) {
+      throw new BadRequestException({
+        error: 'app_archived',
+        message: `${app.name} is archived — restore it before activating it`,
+      });
+    }
     app.isActive = isActive;
     return this.apps.save(app);
+  }
+
+  /**
+   * Hide the app everywhere in the admin and stop its API key (is_active
+   * false), keeping all its history. Reversible with `restore`.
+   */
+  async archive(id: string): Promise<App> {
+    const app = await this.findOneOrFail(id);
+    app.archivedAt ??= new Date();
+    app.isActive = false;
+    return this.apps.save(app);
+  }
+
+  /** Back into the lists — still deactivated, so turning it on is a separate, deliberate step. */
+  async restore(id: string): Promise<App> {
+    const app = await this.findOneOrFail(id);
+    if (!app.archivedAt) return app;
+    app.archivedAt = null;
+    return this.apps.save(app);
+  }
+
+  /**
+   * Remove the app and everything that belongs to it — plans, customers,
+   * subscriptions, transactions and their logs, webhook events, merchants,
+   * payouts, config history, admin preferences. Cannot be undone.
+   *
+   * Guarded so it can't strand money or customers: the app must already be
+   * archived, the caller must type its exact name, and it is refused while a
+   * subscription could still be billed by the provider (active / past due /
+   * paused — the provider would keep charging with no AcePay record) or while
+   * a payout is on its way to a merchant.
+   */
+  async deletePermanently(id: string, confirmName: string | undefined, actor: string | null): Promise<{ id: string; name: string }> {
+    const app = await this.findOneOrFail(id);
+    if (!app.archivedAt) {
+      throw new BadRequestException({
+        error: 'app_not_archived',
+        message: `Archive ${app.name} first — only an archived app can be permanently deleted`,
+      });
+    }
+    if ((confirmName ?? '').trim() !== app.name) {
+      throw new BadRequestException({
+        error: 'confirmation_mismatch',
+        message: `Type the app's name exactly ("${app.name}") to confirm`,
+      });
+    }
+
+    await this.dataSource.transaction(async (m) => {
+      const liveSubs = await m.count(Subscription, {
+        where: { appId: id, status: In([SubscriptionStatus.Active, SubscriptionStatus.PastDue, SubscriptionStatus.Paused]) },
+      });
+      if (liveSubs > 0) {
+        throw new ConflictException({
+          error: 'app_has_live_subscriptions',
+          message: `${app.name} still has ${liveSubs} subscription${liveSubs === 1 ? '' : 's'} that the provider could keep billing. Cancel ${liveSubs === 1 ? 'it' : 'them'} first.`,
+        });
+      }
+      const inFlight = await m.count(Payout, {
+        where: { appId: id, status: In([PayoutStatus.Queued, PayoutStatus.Pending]) },
+      });
+      if (inFlight > 0) {
+        throw new ConflictException({
+          error: 'app_has_payouts_in_flight',
+          message: `${app.name} has ${inFlight} payout${inFlight === 1 ? '' : 's'} still being sent. Wait for ${inFlight === 1 ? 'it' : 'them'} to finish.`,
+        });
+      }
+      // Two child tables RESTRICT their parent (subscriptions → plans,
+      // payouts → merchants), so delete them before the app's cascade
+      // reaches those parents. Everything else cascades from apps.
+      await m.delete(Subscription, { appId: id });
+      await m.delete(Payout, { appId: id });
+      await m.delete(PlatformSetting, { key: appPrefsKey(id) });
+      await m.delete(App, { id });
+    });
+
+    this.logger.warn(`App ${app.code} "${app.name}" (${id}) permanently deleted by ${actor ?? 'unknown admin'}`);
+    return { id, name: app.name };
   }
 
   /**
@@ -308,7 +458,7 @@ export class AppsService {
         success: dto.redirect ?? `${adminOrigin}/subscriptions`,
         failed:  dto.redirect ?? `${adminOrigin}/subscriptions`,
       },
-      metadata: { sandbox: true, triggeredBy: 'admin' },
+      metadata: sandboxMetadata(app, dto.metadata),
     });
     return {
       subscriptionId: result.subscription.id,
@@ -329,4 +479,13 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
+}
+
+/** Metadata for an admin test run. The app's required keys must be present
+ *  (SubscriptionsAppService enforces them), so any the operator didn't give
+ *  get a visible `sandbox` placeholder rather than failing the run. */
+export function sandboxMetadata(app: Pick<App, 'requiredMetadata'>, given: Record<string, unknown> = {}): Record<string, unknown> {
+  const filled: Record<string, unknown> = {};
+  for (const key of app.requiredMetadata ?? []) filled[key] = 'sandbox';
+  return { ...filled, ...given, sandbox: true, triggeredBy: 'admin' };
 }

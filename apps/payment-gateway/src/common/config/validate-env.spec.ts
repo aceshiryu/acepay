@@ -45,9 +45,11 @@ describe('validateEnv', () => {
     expect(() => validateEnv(baseEnv({ DB_PORT: '70000' }))).toThrow(/DB_PORT must be a valid port/);
   });
 
-  it('requires at least one payment provider', () => {
+  // Provider keys can be saved on the admin Integrations page instead, which
+  // env validation can't see — so booting with none in .env must work.
+  it('boots with no provider keys in the env', () => {
     expect(() => validateEnv(baseEnv({ XENDIT_SECRET_KEY: undefined, LEMONSQUEEZY_API_KEY: undefined })))
-      .toThrow(/No payment provider configured/);
+      .not.toThrow();
   });
 
   it('accepts a Xendit Business ID as the platform account, and refuses anything else', () => {

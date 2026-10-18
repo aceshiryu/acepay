@@ -90,7 +90,7 @@ export class WebhooksService {
         tx.providerCompletedAt ??= event.occurredAt ?? new Date();
       }
       if (event.status === TransactionStatus.Succeeded) {
-        tx.paymentChannel ??= paymentChannelOf(event.raw);
+        tx.paymentChannel ??= event.paymentChannel ?? paymentChannelOf(event.raw);
       }
       // Swap providerTxId from checkout id (UUID) to order id once we have it.
       if (event.providerTxId && event.providerTxId !== tx.providerTxId) {
@@ -118,7 +118,42 @@ export class WebhooksService {
       }
     }
 
+    if (tx && event.refunds?.length && tx.type !== TransactionType.Refund) {
+      await this.settleRefunds(tx, event);
+    }
+
     return this.persistAndDeliver(provider, event, tx?.appId ?? app?.id ?? null, tx?.id ?? null, tx, app);
+  }
+
+  /**
+   * The provider's refund event lists every refund on the payment. Move
+   * AcePay's own refund rows for it (matched on the provider refund id) to the
+   * status the provider reports — without this they stay Pending forever.
+   */
+  private async settleRefunds(payment: Transaction, event: NormalizedEvent) {
+    const reported = new Map((event.refunds ?? []).map((r) => [r.providerRefundId, r.status]));
+    const rows = await this.transactions.createQueryBuilder('t')
+      .where('t.app_id = :appId', { appId: payment.appId })
+      .andWhere('t.type = :type', { type: TransactionType.Refund })
+      .andWhere("t.metadata ->> 'refundOf' = :id", { id: payment.id })
+      .getMany();
+    for (const row of rows) {
+      const next = row.providerTxId ? reported.get(row.providerTxId) : undefined;
+      if (!next || next === row.status) continue;
+      const previous = row.status;
+      row.status = next;
+      row.webhookReceivedAt = new Date();
+      if (next === TransactionStatus.Refunded) row.providerCompletedAt ??= event.occurredAt ?? new Date();
+      await this.transactions.save(row);
+      await this.txLogger.log({
+        transaction: row,
+        action: next === TransactionStatus.Refunded ? LogAction.PaymentRefunded : LogAction.PaymentWebhookReceived,
+        actor: LogActor.Provider,
+        statusFrom: previous, statusTo: next,
+        providerEventId: event.providerEventId,
+        details: { refundOf: payment.id },
+      });
+    }
   }
 
   // ─── Subscription events ─────────────────────────────────────────────
@@ -193,8 +228,14 @@ export class WebhooksService {
           sub.metadata = meta;
           dirty = true;
         }
-        const periodEnd = extractRenewsAt(event.raw);
+        // PayMongo invoices carry only the period's start (due date); the end
+        // is one plan interval later.
+        const periodEnd = extractRenewsAt(event.raw)
+          ?? (event.periodStart && sub.plan
+            ? addPlanInterval(event.periodStart, sub.plan.interval, sub.plan.intervalCount ?? 1)
+            : null);
         if (periodEnd) {
+          if (event.periodStart) sub.currentPeriodStart = event.periodStart;
           sub.currentPeriodEnd = periodEnd;
           sub.currentPeriodStart ??= event.occurredAt ?? new Date();
           dirty = true;
@@ -379,6 +420,8 @@ export class WebhooksService {
     if (customer) {
       customer.xenditPaymentMethodId = pmId;
       customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
+      // Renewals need it too (see handleXenditFirstPayment).
+      customer.xenditCustomerId = xenditCustomerIdOf(raw) ?? customer.xenditCustomerId ?? null;
       await this.customers.save(customer);
     }
 
@@ -460,30 +503,50 @@ export class WebhooksService {
     const pmId = (raw.payment_method_id ?? raw.payment_id) as string | undefined;
     let cycle1: Transaction | null = null;
 
-    // A missing payment method only blocks RECURRING. The customer has still
-    // paid cycle 1, so the transaction, the billing period and the next cycle
-    // must be recorded regardless — bailing out here meant a real paid
-    // subscription had no billing record at all. Real Xendit invoice callbacks
-    // do not carry payment_method_id, so this is the normal path, not an edge.
-    if (pmId) {
+    // A missing or unusable payment method only blocks RECURRING. The customer
+    // has still paid cycle 1, so the transaction, the billing period and the
+    // next cycle must be recorded regardless — bailing out here meant a real
+    // paid subscription had no billing record at all.
+    //
+    // Only a CARD gives a reusable payment method. An invoice paid by e-wallet
+    // (GCash, Maya…), QR or bank transfer still carries a payment_method_id, but
+    // it's single-use: the renewal fails "Payment method provided is not
+    // active" (seen in sandbox). Don't arm renewals with it.
+    const unusable = pmId ? nonReusableXenditMethod(raw) : null;
+    const reusablePmId = pmId && !unusable ? String(pmId) : null;
+
+    // The renewal charge also needs the Xendit customer id.
+    // SubscriptionsAppService.create saves it (real invoice callbacks carry
+    // neither customer_id nor our metadata — checked in sandbox); this is only
+    // a fallback for payloads that do.
+    const xenditCustomerId = xenditCustomerIdOf(raw);
+    if (reusablePmId || xenditCustomerId) {
       const customer = await this.customers.findOne({ where: { id: sub.customerId } });
       if (customer) {
-        customer.xenditPaymentMethodId = String(pmId);
-        customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
+        if (reusablePmId) {
+          customer.xenditPaymentMethodId = reusablePmId;
+          customer.xenditPaymentMethodStatus = XenditPaymentMethodStatus.Active;
+        }
+        if (xenditCustomerId) customer.xenditCustomerId = xenditCustomerId;
         await this.customers.save(customer);
       }
-    } else {
-      this.logger.warn(
-        `Xendit first-payment for sub ${sub.id} carried no payment_method_id — cycle 1 is ` +
-        `recorded, but no reusable payment method was saved so cycle 2 cannot be charged.`,
-      );
+    }
+    if (!reusablePmId) {
       // Make this visible NOW rather than as a surprise failed charge a billing
-      // period later. The operator can see on the subscription that recurring is
-      // not armed, and act before the customer is affected.
+      // period later: the operator and the app (it's in the subscription's
+      // metadata) can see recurring is not armed, and ask the customer for a card.
+      const reason = unusable
+        ? 'first_payment_method_not_reusable'
+        : 'xendit_invoice_callback_carried_no_payment_method_id';
+      const detail = unusable
+        ? `The first payment was made with ${unusable}, which can't be charged again. Renewals need a card.`
+        : 'Xendit did not return a payment method for the first payment, so renewals cannot be charged.';
+      this.logger.warn(`Xendit sub ${sub.id}: cycle 1 recorded, renewals not armed — ${detail}`);
       sub.metadata = {
         ...(sub.metadata ?? {}),
         recurringUnavailable: true,
-        recurringUnavailableReason: 'xendit_invoice_callback_carried_no_payment_method_id',
+        recurringUnavailableReason: reason,
+        recurringUnavailableDetail: detail,
       };
       await this.subscriptions.save(sub);
     }
@@ -617,3 +680,26 @@ function extractCurrency(raw: Record<string, unknown>): string | null {
   return data?.attributes?.currency ?? null;
 }
 
+/** The Xendit customer a callback belongs to: `customer_id` on the payload, else
+ *  the `xendit_customer_id` AcePay put in the invoice metadata. */
+function xenditCustomerIdOf(raw: Record<string, unknown>): string | null {
+  const meta = (raw.metadata ?? {}) as Record<string, unknown>;
+  const id = raw.customer_id ?? meta.xendit_customer_id;
+  return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
+/** Payment methods a Xendit invoice can be paid with that DO give a reusable
+ *  payment method for renewals. Everything else (EWALLET, QR_CODE,
+ *  BANK_TRANSFER, RETAIL_OUTLET, DIRECT_DEBIT, PAYLATER) is single-use. */
+const REUSABLE_XENDIT_METHODS = new Set(['CREDIT_CARD', 'CARD']);
+
+/** How the first invoice was paid, in words (e.g. "GCASH (e-wallet)"), when
+ *  that can't be charged again — or null when it can, or the payload doesn't
+ *  say (then the payment method is trusted, as before). */
+export function nonReusableXenditMethod(raw: Record<string, unknown>): string | null {
+  const method = String(raw.payment_method ?? '').trim().toUpperCase();
+  if (!method || REUSABLE_XENDIT_METHODS.has(method)) return null;
+  const channel = String(raw.payment_channel ?? '').trim().toUpperCase();
+  const kind = method === 'EWALLET' ? 'e-wallet' : method.toLowerCase().replace(/_/g, ' ');
+  return channel ? `${channel} (${kind})` : kind;
+}

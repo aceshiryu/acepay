@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import {
   MerchantStatus, PayoutStatus, TransactionStatus, TransactionType,
 } from '../../common/enums';
@@ -49,13 +49,14 @@ export class MarketplaceAdminService {
   }
 
   async listSettings() {
-    const apps = await this.apps.find({ order: { name: 'ASC' } });
+    // Archived apps are hidden from the admin's lists.
+    const apps = await this.apps.find({ where: { archivedAt: IsNull() }, order: { name: 'ASC' } });
     return { data: apps.map((a) => this.settingsView(a)) };
   }
 
   /** Per app: merchants by status, platform fees earned, money paid out. */
   async summary() {
-    const apps = await this.apps.find({ where: { marketplaceEnabled: true }, order: { name: 'ASC' } });
+    const apps = await this.apps.find({ where: { marketplaceEnabled: true, archivedAt: IsNull() }, order: { name: 'ASC' } });
 
     const merchantCounts = await this.merchants.createQueryBuilder('m')
       .select('m.app_id', 'appId').addSelect('m.status', 'status').addSelect('COUNT(*)', 'count')

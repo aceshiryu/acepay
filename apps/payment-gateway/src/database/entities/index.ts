@@ -12,3 +12,5 @@ export { PayoutRun } from './payout-run.entity';
 export { XenditSplitRule } from './xendit-split-rule.entity';
 export { AppConfigChange } from './app-config-change.entity';
 export { PlatformSetting } from './platform-setting.entity';
+export { ProviderCredential } from './provider-credential.entity';
+export { ProviderCredentialChange } from './provider-credential-change.entity';

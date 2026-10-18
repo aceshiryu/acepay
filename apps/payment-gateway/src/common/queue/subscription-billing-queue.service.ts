@@ -22,10 +22,19 @@ export class SubscriptionBillingQueueService {
   ) {}
 
   /** Schedule the next billing cycle. `delayMs=0` fires immediately. */
-  async enqueue(job: SubscriptionBillingJob, delayMs = 0): Promise<void> {
+  /**
+   * `rescheduleKey` is for re-running a cycle that already has a job (a dunning
+   * retry, a paused cycle checked again). The jobId must differ: Bull silently
+   * ignores an add whose jobId already exists — and the cycle's own job still
+   * exists (it's the one running) — so those retries were simply dropped and a
+   * failed renewal was never retried (found in sandbox). First-time schedules
+   * keep the plain id, so scheduling the same cycle twice stays a no-op.
+   */
+  async enqueue(job: SubscriptionBillingJob, delayMs = 0, rescheduleKey?: string): Promise<void> {
+    const baseId = `sub_${job.subscriptionId}_cycle_${job.cycleNumber}`;
     await this.queue.add(job, {
       delay: delayMs,
-      jobId: `sub_${job.subscriptionId}_cycle_${job.cycleNumber}`,
+      jobId: rescheduleKey ? `${baseId}_${rescheduleKey}` : baseId,
     });
     this.logger.debug(
       `Scheduled billing for sub ${job.subscriptionId} cycle ${job.cycleNumber} in ${delayMs}ms`,

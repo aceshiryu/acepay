@@ -6,6 +6,8 @@ import { Transaction } from '../../database/entities';
 import { PaymentProvidersModule } from '../../payment-providers/payment-providers.module';
 import { PaymentsAppController } from './payments-app.controller';
 import { PaymentsAppService } from './payments-app.service';
+import { OneTimePaymentsService } from './one-time-payments.service';
+import { AppStatusService } from '../apps/app-status.service';
 
 @Module({
   imports: [
@@ -15,7 +17,9 @@ import { PaymentsAppService } from './payments-app.service';
     TypeOrmModule.forFeature([Transaction]),
   ],
   controllers: [PaymentsAppController],
-  providers: [PaymentsAppService],
-  exports: [PaymentsAppService],
+  // AppStatusService is stateless (DataSource + credentials); provided here
+  // rather than importing AppsModule, whose imports would make a cycle.
+  providers: [PaymentsAppService, OneTimePaymentsService, AppStatusService],
+  exports: [PaymentsAppService, OneTimePaymentsService],
 })
 export class PaymentsAppModule {}

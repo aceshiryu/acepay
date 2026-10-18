@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { Provider } from '../../common/enums';
 import { WebhookEvent } from '../../database/entities';
+import { ProviderCredentialsService } from '../../payment-providers/provider-credentials.service';
+import { INTEGRATIONS } from '../integrations/integration-catalog';
 
 export interface ProviderHealth {
   provider: Provider;
@@ -25,22 +26,19 @@ export interface SettingsHealth {
   publicBaseHint: string | null;
 }
 
-const LS_ENVS  = ['LEMONSQUEEZY_API_KEY', 'LEMONSQUEEZY_STORE_ID', 'LEMONSQUEEZY_WEBHOOK_SECRET'];
-const XEN_ENVS = ['XENDIT_SECRET_KEY', 'XENDIT_WEBHOOK_TOKEN'];
-
 @Injectable()
 export class SettingsAdminService {
   constructor(
     @InjectRepository(WebhookEvent) private readonly webhooks: Repository<WebhookEvent>,
-    private readonly config: ConfigService,
+    private readonly config: ProviderCredentialsService,
   ) {}
 
   async health(): Promise<SettingsHealth> {
     const providers: ProviderHealth[] = [];
-    for (const [provider, envs, webhookPath] of [
-      [Provider.Lemonsqueezy, LS_ENVS,  '/v1/webhooks/lemonsqueezy'],
-      [Provider.Xendit,       XEN_ENVS, '/v1/webhooks/xendit'],
-    ] as const) {
+    for (const spec of INTEGRATIONS) {
+      const provider = spec.provider;
+      const envs = spec.credentials.filter((c) => c.required).map((c) => c.env);
+      const webhookPath = spec.webhooks[0].path;
       const missing = envs.filter((k) => !this.config.get<string>(k));
       const last = await this.webhooks.createQueryBuilder('w')
         .where('w.provider = :p', { p: provider })
@@ -115,5 +113,35 @@ export class SettingsAdminService {
     const raw = JSON.stringify(body);
     const sig = createHmac('sha256', secret).update(raw).digest('hex');
     return { headers: { 'x-signature': sig }, body };
+  }
+
+  /** Generate a synthetic PayMongo `checkout_session.payment.paid` event, signed
+   *  like a real test-mode delivery (`t=<ts>,te=<hmac of "t.body">,li=`). */
+  buildSyntheticPaymongoCheckoutPaid(): {
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  } {
+    const secret = this.config.get<string>('PAYMONGO_WEBHOOK_SECRET') ?? '';
+    const now = Math.floor(Date.now() / 1000);
+    const body = {
+      data: {
+        id: `evt_sim_${randomUUID().replace(/-/g, '')}`,
+        type: 'event',
+        attributes: {
+          type: 'checkout_session.payment.paid',
+          livemode: false,
+          created_at: now,
+          data: {
+            id: `cs_sim_${randomUUID().replace(/-/g, '')}`,
+            type: 'checkout_session',
+            // A real session carries a genuine AcePay uuid here, so emit one.
+            attributes: { metadata: { acepay_tx: randomUUID() }, payment_intent: { id: `pi_sim_${now}` } },
+          },
+        },
+      },
+    };
+    const raw = JSON.stringify(body);
+    const sig = createHmac('sha256', secret).update(`${now}.${raw}`).digest('hex');
+    return { headers: { 'paymongo-signature': `t=${now},te=${sig},li=` }, body };
   }
 }

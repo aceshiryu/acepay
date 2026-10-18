@@ -47,4 +47,9 @@ export class WebhookStatsDto {
   @Min(1)
   @Max(720)
   windowHours?: number = 24;
+
+  @ApiPropertyOptional({ description: 'Only count events for this app' })
+  @IsOptional()
+  @IsUUID()
+  appId?: string;
 }

@@ -1,12 +1,12 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Xendit } from 'xendit-node';
 import { Provider, TransactionStatus } from '../common/enums';
 import {
-  CreatePaymentParams, CreatePaymentResult, CreateSubscriptionParams, CreateSubscriptionResult,
+  ConnectionCheck, CreatePaymentParams, CreatePaymentResult, CreateSubscriptionParams, CreateSubscriptionResult,
   FetchedPayment, FetchedSubscription, NormalizedEvent, PaymentProvider, ProviderCallOptions, RefundResult,
 } from './provider.types';
+import { ProviderCredentialsService } from './provider-credentials.service';
 
 export interface XenditChargeResult {
   paymentRequestId: string;
@@ -45,31 +45,52 @@ interface XenditPaymentMethodWebhook {
   metadata?: Record<string, string>;
 }
 
+/** Xendit has no test-mode flag — the secret key itself is a sandbox
+ *  (`xnd_development_…`) or real-money (`xnd_production_…`) key. */
+export function xenditKeyMode(key: string | undefined | null): ConnectionCheck['mode'] {
+  if (key?.startsWith('xnd_production_')) return 'live';
+  if (key?.startsWith('xnd_development_')) return 'test';
+  return 'unknown';
+}
+
 @Injectable()
 export class XenditAdapter implements PaymentProvider {
   readonly name = Provider.Xendit;
   private readonly logger = new Logger(XenditAdapter.name);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _client: any | null = null;
-  private _webhookToken: string | null = null;
+  private _clientKey: string | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ProviderCredentialsService) {}
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client(): any {
-    if (this._client) return this._client;
     const key = this.config.get<string>('XENDIT_SECRET_KEY');
     if (!key) throw new Error('XENDIT_SECRET_KEY env var is not set');
-    this._client = new Xendit({ secretKey: key });
+    // Rebuilt when the key changes (saved from the admin Integrations page).
+    if (!this._client || this._clientKey !== key) {
+      this._client = new Xendit({ secretKey: key });
+      this._clientKey = key;
+    }
     return this._client;
   }
 
   private webhookToken(): string {
-    if (this._webhookToken) return this._webhookToken;
     const t = this.config.get<string>('XENDIT_WEBHOOK_TOKEN');
     if (!t) throw new Error('XENDIT_WEBHOOK_TOKEN env var is not set');
-    this._webhookToken = t;
     return t;
+  }
+
+  async checkConnection(): Promise<ConnectionCheck> {
+    const mode = xenditKeyMode(this.config.get<string>('XENDIT_SECRET_KEY'));
+    try {
+      // Master account, no for-user-id. Needs the key's Balance READ permission.
+      const resp = await this.client().Balance.getBalance({ accountType: 'CASH', currency: 'PHP' });
+      const balance = Number(resp?.balance ?? 0);
+      return { ok: true, mode, detail: `Connected. Master account cash balance: PHP ${balance.toLocaleString('en-PH')}` };
+    } catch (err) {
+      return { ok: false, mode, detail: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async createPayment(p: CreatePaymentParams): Promise<CreatePaymentResult> {
@@ -198,6 +219,7 @@ export class XenditAdapter implements PaymentProvider {
       checkoutUrl: String(invoice.invoiceUrl),
       providerCreatedAt: invoice.created ? new Date(invoice.created) : new Date(),
       raw: invoice as unknown as Record<string, unknown>,
+      providerCustomerId: xenditCustomerId,
     };
   }
 
@@ -299,16 +321,30 @@ export class XenditAdapter implements PaymentProvider {
     metadata: Record<string, unknown>;
   }): Promise<XenditChargeResult> {
     this.client();
-    const resp = await this.client().PaymentRequest.createPaymentRequest({
-      data: {
-        referenceId: params.referenceId,
-        amount: params.amount / 100,
-        currency: params.currency.toUpperCase(),
-        customerId: params.xenditCustomerId,
-        paymentMethod: { id: params.paymentMethodId },
-        metadata: stringifyMetadata(params.metadata),
-      },
-    });
+    let resp;
+    try {
+      resp = await this.client().PaymentRequest.createPaymentRequest({
+        data: {
+          referenceId: params.referenceId,
+          amount: params.amount / 100,
+          currency: params.currency.toUpperCase(),
+          customerId: params.xenditCustomerId,
+          // An EXISTING saved method goes in payment_method_id. The nested
+          // `paymentMethod` object means "create a new one" and Xendit then
+          // demands payment_method.type — every renewal failed with that
+          // (API_VALIDATION_ERROR, found in sandbox).
+          paymentMethodId: params.paymentMethodId,
+          metadata: stringifyMetadata(params.metadata),
+        },
+      });
+    } catch (err) {
+      // The SDK's message is only "[Xendit SDK Error] 400 Bad Request"; the
+      // reason is on errorCode / errorMessage. It ends up in the failed charge's
+      // description, so the operator can see why a renewal failed — and the
+      // code lets the billing processor tell a dead payment method (stop) from
+      // a blip (retry).
+      throw new XenditChargeError(describeXenditError(err), (err as { errorCode?: string })?.errorCode ?? null);
+    }
     const status = String(resp?.status ?? 'PENDING').toUpperCase();
     return {
       paymentRequestId: String(resp?.id ?? ''),
@@ -536,4 +572,33 @@ export function sameToken(given: string, expected: string): boolean {
   const a = createHash('sha256').update(given).digest();
   const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/** `[Xendit SDK Error] 400 Bad Request` → `… — INVALID_PAYMENT_METHOD: <Xendit's message>`. */
+export function describeXenditError(err: unknown): string {
+  const e = err as { message?: string; errorCode?: string; errorMessage?: string; status?: number } | null | undefined;
+  const base = e?.message ?? String(err);
+  const code = e?.errorCode;
+  const msg = e?.errorMessage && !/^(Bad Request|Unauthorized|Forbidden|Not Found)$/i.test(e.errorMessage) ? e.errorMessage : null;
+  if (!code && !msg) return base;
+  return `${base} — ${[code, msg].filter(Boolean).join(': ')}`;
+}
+
+/** Xendit error codes meaning the saved payment method itself can't be charged
+ *  — retrying won't help; the customer has to give a new one. */
+const DEAD_PAYMENT_METHOD_CODES = new Set([
+  'INVALID_PAYMENT_METHOD', 'PAYMENT_METHOD_NOT_FOUND', 'PAYMENT_METHOD_NOT_ACTIVE', 'PAYMENT_METHOD_EXPIRED',
+]);
+
+/** A renewal charge Xendit refused, with its error code. */
+export class XenditChargeError extends Error {
+  constructor(message: string, readonly code: string | null) {
+    super(message);
+    this.name = 'XenditChargeError';
+  }
+
+  /** The payment method is unusable (e.g. a one-time e-wallet method): stop. */
+  get paymentMethodDead(): boolean {
+    return !!this.code && DEAD_PAYMENT_METHOD_CODES.has(this.code);
+  }
 }

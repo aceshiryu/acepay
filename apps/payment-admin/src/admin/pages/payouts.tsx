@@ -12,6 +12,7 @@ import { PageShell } from '../layout';
 import { AppAvatar, Button, Card, FilterSelect, Icon, StatusBadge, Table } from '../primitives';
 import { Field, MiniStatCard, Modal, inputStyle } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, useAppScope } from '../app-scope';
 import { Pager } from './merchants';
 
 const PAGE_SIZE = 20;
@@ -46,12 +47,14 @@ function php(minor: number, currency = 'PHP') {
 // ─── Payout runs list ───────────────────────────────────────────────────
 
 export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
+  const scope = useAppScope();
   const [statusFilter, setStatusFilter] = React.useState('All');
   const [page, setPage] = React.useState(1);
   const [newOpen, setNewOpen] = React.useState(false);
 
   const query: api.PayoutRunListQuery = {
     page, pageSize: PAGE_SIZE,
+    appId: scope?.app.id,
     status: statusFilter !== 'All' ? (statusFilter as PayoutRunStatus) : undefined,
   };
   const list = useFetch(() => api.payoutRuns.list(query), [JSON.stringify(query)]);
@@ -59,7 +62,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <PageShell
       title="Payouts"
-      breadcrumbs={[{ label: 'Marketplace' }, { label: 'Payouts' }]}
+      breadcrumbs={scope ? scopeCrumbs(scope, 'Payouts') : [{ label: 'Marketplace' }, { label: 'Payouts' }]}
       actions={
         <Button variant="primary" size="md" leading={<Icon name="plus" size={12} strokeWidth={2.4} />}
           onClick={() => setNewOpen(true)}>
@@ -70,6 +73,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
       <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 14, maxWidth: 760 }}>
         A payout run checks every merchant&apos;s balance and builds a preview of who gets paid and how much.
         Nothing is sent until you look it over and press Confirm.
+        {scope && ' Only runs started for this app are listed here.'}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -91,7 +95,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
           <>
             <Table<PayoutRun>
               columns={[
-                { key: 'id', label: 'Run', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
+                { key: 'id', label: 'Run', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
                 { key: 'app', label: 'App', render: (r) => r.appId ? (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -112,6 +116,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
               rows={list.data.data}
               getRowKey={(r) => r.id}
               onRowClick={(r) => onNavigate('payout-run-detail', r.id)}
+              hide={scope ? ['app'] : undefined}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
           </>
@@ -121,6 +126,7 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
       {newOpen && (
         <Modal title="Start a payout run" onClose={() => setNewOpen(false)} width={480}>
           <NewRunForm
+            fixedAppId={scope?.app.id}
             onClose={() => setNewOpen(false)}
             onCreated={(id) => { setNewOpen(false); onNavigate('payout-run-detail', id); }}
             onOpenRun={(id) => { setNewOpen(false); onNavigate('payout-run-detail', id); }}
@@ -131,13 +137,15 @@ export function PayoutsPage({ onNavigate }: { onNavigate: Navigate }) {
   );
 }
 
-function NewRunForm({ onClose, onCreated, onOpenRun }: {
+function NewRunForm({ onClose, onCreated, onOpenRun, fixedAppId }: {
+  /** Inside an app: the run is for that app only. */
+  fixedAppId?: string;
   onClose: () => void;
   onCreated: (id: string) => void;
   onOpenRun: (id: string) => void;
 }) {
   const settings = useFetch(() => api.marketplace.settings(), []);
-  const [appId, setAppId] = React.useState('');
+  const [appId, setAppId] = React.useState(fixedAppId ?? '');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [openRunId, setOpenRunId] = React.useState<string | null>(null);
@@ -165,19 +173,19 @@ function NewRunForm({ onClose, onCreated, onOpenRun }: {
         AcePay will read each merchant&apos;s balance and build a preview. You&apos;ll get to review it
         (and untick anyone) before any money moves.
       </div>
-      <Field label="Which merchants?" hint="Pick one app, or pay everyone across all marketplace apps.">
+      {!fixedAppId && <Field label="Which merchants?" hint="Pick one app, or pay everyone across all marketplace apps.">
         <select value={appId} onChange={(e) => setAppId(e.target.value)} style={inputStyle}>
           <option value="">All apps</option>
           {enabledApps.map((a) => <option key={a.appId} value={a.appId}>{a.appName}</option>)}
         </select>
-      </Field>
+      </Field>}
       {error && (
         <div style={{ color: 'var(--bad)', fontSize: 12, marginTop: 12, lineHeight: 1.5 }}>
           {error}
           {openRunId && (
             <div style={{ marginTop: 6 }}>
               <button onClick={() => onOpenRun(openRunId)} style={{
-                background: 'none', border: 'none', padding: 0, color: 'var(--accent)',
+                background: 'none', border: 'none', padding: 0, color: 'var(--accent-text)',
                 fontSize: 12, fontWeight: 550, cursor: 'pointer',
               }}>
                 Open that run →

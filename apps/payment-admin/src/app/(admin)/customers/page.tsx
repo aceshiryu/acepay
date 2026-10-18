@@ -1,8 +1,8 @@
 'use client';
 
-import { CustomersPage } from '../../../admin/pages/customers';
-import { useNavigate } from '../../../admin/navigate';
+import { RedirectTo } from '@/admin/redirects';
 
+/** Replaced by the per-app pages under /apps/<id>/. */
 export default function Page() {
-  return <CustomersPage onNavigate={useNavigate()} />;
+  return <RedirectTo href="/dashboard" />;
 }

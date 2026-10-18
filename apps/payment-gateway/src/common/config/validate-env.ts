@@ -59,14 +59,9 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     }
   }
 
-  // At least one payment provider must be configured, or nothing can be charged.
-  const hasLemon = !!config.LEMONSQUEEZY_API_KEY;
-  const hasXendit = !!config.XENDIT_SECRET_KEY;
-  if (!hasLemon && !hasXendit) {
-    errors.push(
-      '  - No payment provider configured: set LEMONSQUEEZY_API_KEY and/or XENDIT_SECRET_KEY',
-    );
-  }
+  // No "at least one provider" check: provider keys can also be saved on the
+  // admin Integrations page (encrypted in the database), which env validation
+  // can't see. A provider with no keys shows as "Not connected" there instead.
 
   // Marketplace: the master account's Business ID, when given, must look like
   // one (24 hex characters). A wrong value only fails later, at the first fee

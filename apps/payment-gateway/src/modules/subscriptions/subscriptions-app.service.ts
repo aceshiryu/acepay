@@ -5,7 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
-import { BillingMode, SubscriptionStatus } from '../../common/enums';
+import { BillingMode, Provider, SubscriptionStatus } from '../../common/enums';
 import {
   App, Customer, Subscription,
 } from '../../database/entities';
@@ -129,6 +129,14 @@ export class SubscriptionsAppService {
       throw new BadRequestException({ error: 'provider_create_failed', message: msg });
     }
 
+    // Xendit renewals charge the saved payment method ON this Xendit customer,
+    // and nothing later in the flow carries its id — keep it now.
+    if (plan.provider === Provider.Xendit && createResult.providerCustomerId
+      && customer.xenditCustomerId !== createResult.providerCustomerId) {
+      customer.xenditCustomerId = createResult.providerCustomerId;
+      await this.customers.save(customer);
+    }
+
     const sub = this.subscriptions.create({
       id: subId,
       appId: app.id,
@@ -143,6 +151,7 @@ export class SubscriptionsAppService {
       status: SubscriptionStatus.Active,
       metadata: {
         ...metadata,
+        ...(createResult.providerMetadata ?? {}),
         awaitingFirstPayment: true,
         checkoutUrl: createResult.checkoutUrl,
       },
@@ -203,6 +212,8 @@ export class SubscriptionsAppService {
     // SubscriptionBillingProcessor sees status=Canceled, records a Transaction
     // with status='canceled' (no charge), marks the sub Expired, and stops
     // scheduling further cycles. For LS, the provider handles end-of-period.
+    // PayMongo cancels immediately (it has no end-of-period cancel), so for it
+    // the returned status is already final and reactivate is refused.
     sub.status = result.status;
     sub.cancelAt = result.cancelAt;
     sub.canceledAt = result.canceledAt ?? new Date();

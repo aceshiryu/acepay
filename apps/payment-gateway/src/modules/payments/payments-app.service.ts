@@ -175,6 +175,8 @@ export class PaymentsAppService {
 
     reserved.status = result.status;
     reserved.providerTxId = result.providerRefundId;
+    // Record what the provider really refunded if it capped the request.
+    if (typeof result.amount === 'number' && result.amount > 0) reserved.amount = -result.amount;
     const refund = await this.transactions.save(reserved);
 
     await this.txLogger.log({

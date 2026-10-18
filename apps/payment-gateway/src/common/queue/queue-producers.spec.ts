@@ -114,6 +114,17 @@ describe('SubscriptionBillingQueueService', () => {
         'sub_sub-2_cycle_2',
       ]);
     });
+
+    // A dunning retry / paused re-check re-runs a cycle whose job still exists
+    // (it's the one running). With the plain id Bull silently dropped it, so a
+    // failed renewal was never retried — found in sandbox.
+    it('gives a same-cycle reschedule its own job id', async () => {
+      await service.enqueue({ subscriptionId: 'sub-1', cycleNumber: 2 }, 86_400_000, 'retry-1');
+      expect(queue.add).toHaveBeenCalledWith(
+        { subscriptionId: 'sub-1', cycleNumber: 2 },
+        { delay: 86_400_000, jobId: 'sub_sub-1_cycle_2_retry-1' },
+      );
+    });
   });
 
   describe('cancel', () => {

@@ -62,6 +62,20 @@ export class SettingsAdminController {
         });
       }
     }
+    if (body.provider === Provider.Paymongo) {
+      const { headers, body: payload } = this.settings.buildSyntheticPaymongoCheckoutPaid();
+      // Byte-for-byte what was signed: the signature covers the raw body.
+      const raw = Buffer.from(JSON.stringify(payload));
+      try {
+        const result = await this.webhooks.handle(Provider.Paymongo, raw, headers['paymongo-signature']);
+        return { ok: true, simulated: 'checkout_session.payment.paid', payload, result };
+      } catch (err) {
+        throw new BadRequestException({
+          error: 'simulate_failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     throw new BadRequestException({
       error: 'unsupported_provider',
       message: `Cannot simulate for provider "${body.provider}"`,

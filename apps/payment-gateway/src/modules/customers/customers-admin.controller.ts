@@ -1,5 +1,5 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AdminGuard } from '../../auth/admin.guard';
 import { CustomersAdminService } from './customers-admin.service';
 import { ListCustomersDto } from './dto/list-customers.dto';
@@ -19,8 +19,9 @@ export class CustomersAdminController {
 
   @Get('stats')
   @ApiOperation({ summary: 'Total customers, with-subscriptions count, joined-this-month, top app' })
-  stats() {
-    return this.customers.stats();
+  @ApiQuery({ name: 'appId', required: false, description: 'Only count customers of this app' })
+  stats(@Query('appId', new ParseUUIDPipe({ optional: true })) appId?: string) {
+    return this.customers.stats(appId);
   }
 
   @Get(':id')

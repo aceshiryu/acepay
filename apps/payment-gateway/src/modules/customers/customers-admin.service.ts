@@ -52,7 +52,8 @@ export class CustomersAdminService {
     return { ...customer, subscriptions, transactions };
   }
 
-  async stats() {
+  async stats(appId?: string) {
+    const app = appId ? { appId } : {};
     const startOfMonth = new Date();
     startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
     const [
@@ -61,12 +62,13 @@ export class CustomersAdminService {
       joinedThisMonth,
       topAppRaw,
     ] = await Promise.all([
-      this.customers.count(),
+      this.customers.count({ where: app }),
       this.subscriptions.createQueryBuilder('sub')
         .select('COUNT(DISTINCT sub.customer_id)', 'count')
         .where('sub.status = :status', { status: SubscriptionStatus.Active })
+        .andWhere(appId ? 'sub.app_id = :appId' : '1=1', { appId })
         .getRawOne<{ count: string }>(),
-      this.customers.count({ where: { createdAt: MoreThanOrEqual(startOfMonth) } }),
+      this.customers.count({ where: { ...app, createdAt: MoreThanOrEqual(startOfMonth) } }),
       this.customers.createQueryBuilder('cust')
         .leftJoin('cust.app', 'app')
         .select('app.id', 'appId').addSelect('app.name', 'appName')

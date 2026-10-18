@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import {
   cancelSubscription, createCheckout, getCheckout, getOrder, getProduct, getStore,
@@ -7,9 +6,10 @@ import {
 } from '@lemonsqueezy/lemonsqueezy.js';
 import { PlanInterval, Provider, SubscriptionStatus, TransactionStatus } from '../common/enums';
 import {
-  CreatePaymentParams, CreatePaymentResult, CreateSubscriptionParams, CreateSubscriptionResult,
+  ConnectionCheck, CreatePaymentParams, CreatePaymentResult, CreateSubscriptionParams, CreateSubscriptionResult,
   FetchedPayment, FetchedSubscription, NormalizedEvent, PaymentProvider, RefundResult,
 } from './provider.types';
+import { ProviderCredentialsService } from './provider-credentials.service';
 
 export interface LookedUpVariant {
   variantId: string;
@@ -45,39 +45,39 @@ interface LemonEvent {
   };
 }
 
+/** Opt-out and exact-match: only the lowercase string `false` goes live. */
+export function isLemonTestMode(value: string | undefined | null): boolean {
+  return value !== 'false';
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class LemonsqueezyAdapter implements PaymentProvider {
   readonly name = Provider.Lemonsqueezy;
   private readonly logger = new Logger(LemonsqueezyAdapter.name);
-  private _initialized = false;
-  private _storeId: string | null = null;
-  private _variantId: string | null = null;
-  private _webhookSecret: string | null = null;
+  /** The API key the SDK was last set up with; re-setup when it changes. */
+  private _setupKey: string | null = null;
   // Per-store currency cache — stores rarely change currency, so reuse across lookups.
   private _storeCurrency = new Map<string, string>();
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ProviderCredentialsService) {}
 
   private init(): void {
-    if (this._initialized) return;
     const key = this.config.get<string>('LEMONSQUEEZY_API_KEY');
     if (!key) throw new Error('LEMONSQUEEZY_API_KEY env var is not set');
+    if (this._setupKey === key) return;
     lemonSqueezySetup({ apiKey: key });
-    this._initialized = true;
+    this._setupKey = key;
   }
 
   private storeId(): string {
-    if (this._storeId) return this._storeId;
     const id = this.config.get<string>('LEMONSQUEEZY_STORE_ID');
     if (!id) throw new Error('LEMONSQUEEZY_STORE_ID env var is not set');
-    this._storeId = id;
     return id;
   }
 
   private variantId(): string {
-    if (this._variantId) return this._variantId;
     const id = this.config.get<string>('LEMONSQUEEZY_VARIANT_ID');
     if (!id) {
       throw new Error(
@@ -85,20 +85,33 @@ export class LemonsqueezyAdapter implements PaymentProvider {
         '"AcePay Generic Charge" variant in your Lemon Squeezy store and set this to its ID',
       );
     }
-    this._variantId = id;
     return id;
   }
 
   private isTestMode(): boolean {
-    return this.config.get<string>('LEMONSQUEEZY_TEST_MODE') !== 'false';
+    return isLemonTestMode(this.config.get<string>('LEMONSQUEEZY_TEST_MODE'));
   }
 
   private webhookSecret(): string {
-    if (this._webhookSecret) return this._webhookSecret;
     const s = this.config.get<string>('LEMONSQUEEZY_WEBHOOK_SECRET');
     if (!s) throw new Error('LEMONSQUEEZY_WEBHOOK_SECRET env var is not set');
-    this._webhookSecret = s;
     return s;
+  }
+
+  async checkConnection(): Promise<ConnectionCheck> {
+    const mode = this.isTestMode() ? 'test' : 'live';
+    try {
+      this.init();
+      const storeId = this.storeId();
+      const { data, error } = await getStore(storeId);
+      if (error || !data) {
+        return { ok: false, mode, detail: `Lemon Squeezy rejected the request: ${error?.message ?? 'no store returned'}` };
+      }
+      const attrs = data.data.attributes as { name?: string; currency?: string };
+      return { ok: true, mode, detail: `Connected to store "${attrs.name ?? storeId}" (${attrs.currency ?? 'unknown currency'})` };
+    } catch (err) {
+      return { ok: false, mode, detail: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async createPayment(p: CreatePaymentParams): Promise<CreatePaymentResult> {
@@ -167,13 +180,25 @@ export class LemonsqueezyAdapter implements PaymentProvider {
     if (amount == null) {
       throw new Error('Lemon Squeezy refunds require an amount (full refunds must pass the original order total)');
     }
-    const { data, error } = await issueOrderRefund(providerTxId, amount);
+    // LS settles in USD and converts, so the order's real total can be a few
+    // centavos off the AcePay amount (₱499.00 plan → ₱498.92 order, seen in
+    // sandbox), and LS rejects asking for more than it holds. Cap at what the
+    // order can still refund and report what was actually refunded.
+    const order = await getOrder(providerTxId);
+    const attrs = (order?.data?.data?.attributes ?? {}) as { total?: number; refunded_amount?: number };
+    const refundable = typeof attrs.total === 'number' ? attrs.total - (attrs.refunded_amount ?? 0) : null;
+    if (refundable !== null && refundable <= 0) {
+      throw new Error(`Lemon Squeezy order ${providerTxId} has already been fully refunded`);
+    }
+    const toRefund = refundable !== null ? Math.min(amount, refundable) : amount;
+    const { data, error } = await issueOrderRefund(providerTxId, toRefund);
     if (error || !data) {
-      throw new Error(`Lemon Squeezy refund failed: ${error?.message ?? 'unknown'}`);
+      throw new Error(`Lemon Squeezy refund failed: ${describeLemonError(error)}`);
     }
     return {
       providerRefundId: String(data.data.id),
       status: TransactionStatus.Refunded,
+      amount: toRefund,
       raw: data.data as unknown as Record<string, unknown>,
     };
   }
@@ -513,4 +538,18 @@ function mapSubStatus(lemonStatus: string): SubscriptionStatus {
     case 'expired':   return SubscriptionStatus.Expired;
     default:          return SubscriptionStatus.Active;
   }
+}
+
+/** The SDK's error says only the HTTP status text ("Unprocessable Entity");
+ *  LS's actual reason is in `cause` — the JSON:API `errors` array itself (what
+ *  the SDK sets), or a string. Surface it so the operator can act. */
+export function describeLemonError(error: unknown): string {
+  type LsErr = { detail?: string; title?: string };
+  const e = error as { message?: string; cause?: unknown } | null | undefined;
+  const cause = e?.cause as LsErr[] | { errors?: LsErr[] } | string | undefined;
+  const list: LsErr[] = Array.isArray(cause) ? cause : (cause && typeof cause === 'object' ? cause.errors ?? [] : []);
+  const details = list.map((x) => x?.detail ?? x?.title).filter((d): d is string => !!d);
+  if (typeof cause === 'string' && cause !== 'unknown cause') details.push(cause);
+  const base = e?.message ?? 'unknown';
+  return details.length ? `${base} — ${details.join('; ')}` : base;
 }

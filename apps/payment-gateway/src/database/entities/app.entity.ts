@@ -69,6 +69,11 @@ export class App {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
 
+  /** Set = archived: hidden from every admin list, API key rejected, history
+   *  kept. Restorable; only an archived app can be permanently deleted. */
+  @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  archivedAt?: Date | null;
+
   // ─── Marketplace (Slice 6) ──────────────────────────────────────────────
   // Lets an app charge on behalf of its merchants (e.g. BooklyPH coaches) with
   // a platform fee split off at payment time. There is deliberately NO global

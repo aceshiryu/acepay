@@ -7,6 +7,7 @@ import { Paged, toPaged } from '../../common/dto/pagination.dto';
 import { BillingMode, Provider } from '../../common/enums';
 import { App, Plan } from '../../database/entities';
 import { LemonsqueezyAdapter } from '../../payment-providers/lemonsqueezy.adapter';
+import { PaymongoAdapter } from '../../payment-providers/paymongo.adapter';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { ListPlansDto } from './dto/list-plans.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
@@ -17,6 +18,7 @@ export class PlansService {
     @InjectRepository(Plan) private readonly plans: Repository<Plan>,
     @InjectRepository(App) private readonly apps: Repository<App>,
     private readonly lsAdapter: LemonsqueezyAdapter,
+    private readonly paymongo: PaymongoAdapter,
   ) {}
 
   async create(dto: CreatePlanDto): Promise<Plan> {
@@ -74,6 +76,18 @@ export class PlansService {
       if (!providerPlanId || providerPlanId.trim() === '') {
         providerPlanId = `xendit_acepay_${dto.slug}`;
       }
+    } else if (dto.provider === Provider.Paymongo) {
+      // PayMongo bills on its own schedule, so it needs a real plan on its side.
+      const pm = await this.paymongo.resolvePlan({
+        existingPlanId: dto.providerPlanId,
+        name: dto.name, description: dto.description,
+        amount: dto.amount, currency: dto.currency, interval: dto.interval, intervalCount: dto.intervalCount,
+      });
+      providerPlanId = pm.planId;
+      amount = pm.amount;
+      currency = pm.currency;
+      interval = pm.interval;
+      intervalCount = pm.intervalCount;
     }
 
     let plan = this.plans.create({
@@ -128,6 +142,14 @@ export class PlansService {
       throw new BadRequestException({
         error: 'price_fields_immutable_for_lemonsqueezy',
         message: 'Price, currency, and interval are controlled by the Lemon Squeezy variant. Edit the variant in LS and use Verify to sync.',
+      });
+    }
+    if (plan.provider === Provider.Paymongo && priceFieldsChanged) {
+      // PayMongo bills from its own plan; editing only AcePay's copy would make
+      // the two disagree. A new price = a new plan.
+      throw new BadRequestException({
+        error: 'price_fields_immutable_for_paymongo',
+        message: 'Price, currency, and interval are fixed by the PayMongo plan. Create a new plan for a new price.',
       });
     }
     if (dto.name != null)          plan.name = dto.name;

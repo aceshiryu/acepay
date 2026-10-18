@@ -10,6 +10,7 @@ import { PageShell } from '../layout';
 import { AppAvatar, Button, Card, FilterSelect, Icon, KV, SearchInput, StatusBadge, Table } from '../primitives';
 import { DetailMicro, Field, inputStyle } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, useAppScope } from '../app-scope';
 
 const PAGE_SIZE = 20;
 
@@ -86,6 +87,7 @@ function FeeText({ m }: { m: Pick<MerchantListRow, 'feePercent' | 'feeOverridePe
 // ─── Merchants list ─────────────────────────────────────────────────────
 
 export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
+  const scope = useAppScope();
   const [searchInput, setSearchInput] = React.useState('');
   const [search, setSearch] = React.useState('');
   const [appFilter, setAppFilter] = React.useState('All');
@@ -101,7 +103,7 @@ export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
   const settings = useFetch(() => api.marketplace.settings(), []);
   const query: api.MerchantListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
     status: statusFilter !== 'All' ? (statusFilter as MerchantStatus) : undefined,
     search: search || undefined,
   };
@@ -110,7 +112,7 @@ export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
   const appOptions = ['All', ...(settings.data?.data ?? []).map((a) => ({ value: a.appId, label: a.appName }))];
 
   return (
-    <PageShell title="Merchants" breadcrumbs={[{ label: 'Marketplace' }, { label: 'Merchants' }]}>
+    <PageShell title="Merchants" breadcrumbs={scope ? scopeCrumbs(scope, 'Merchants') : [{ label: 'Marketplace' }, { label: 'Merchants' }]}>
       <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6, marginBottom: 14, maxWidth: 760 }}>
         Merchants are the businesses an app collects money for. Apps add them through the API;
         here you can check their payout details, pause them, or give them a special fee.
@@ -119,7 +121,7 @@ export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Search code, name, email or ref…" width={260} />
         <Icon name="filter" size={13} color="var(--muted)" style={{ marginLeft: 4 }} />
-        <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }} options={appOptions} />
+        {!scope && <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }} options={appOptions}  />}
         <FilterSelect label="Status" value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} options={[
           'All',
           { value: 'active', label: 'Active' },
@@ -186,6 +188,7 @@ export function MerchantsPage({ onNavigate }: { onNavigate: Navigate }) {
               ]}
               rows={list.data.data}
               getRowKey={(r) => r.id}
+              hide={scope ? ['app'] : undefined}
               onRowClick={(r) => onNavigate('merchant-detail', r.id)}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
@@ -291,7 +294,7 @@ export function MerchantDetailPage({ merchantId, onNavigate, onBack }: {
               <KV k="Name" v={m.name} />
               <KV k="Email" v={m.email} />
               <KV k="App" v={
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent)' }}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent-text)' }}
                   onClick={() => onNavigate('app-detail', m.appId)}>
                   <AppAvatar name={m.appName} size={16} />{m.appName}
                 </span>
@@ -575,7 +578,7 @@ function PayoutHistoryCard({ merchantId, onNavigate }: { merchantId: string; onN
                 </div>
               )},
               { key: 'run', label: 'Run', align: 'right', render: (r) => r.runId ? (
-                <span className="mono" style={{ color: 'var(--accent)', fontSize: 11.5 }}>{r.runCode ?? '—'}</span>
+                <span className="mono" style={{ color: 'var(--accent-text)', fontSize: 11.5 }}>{r.runCode ?? '—'}</span>
               ) : '—' },
             ]}
             rows={list.data.data}

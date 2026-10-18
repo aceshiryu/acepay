@@ -1,14 +1,12 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { SubscriptionDetailPage } from '../../../../admin/pages/subscriptions';
-import { useNavigate } from '../../../../admin/navigate';
+import { useParams } from 'next/navigation';
+import * as api from '@/admin/api/client';
+import { RecordRedirect } from '@/admin/redirects';
 
+/** Old global URL: records now live under their app. */
 export default function Page() {
   const params = useParams();
-  const router = useRouter();
-  const subId = (params.id as string) ?? null;
-  return (
-    <SubscriptionDetailPage subId={subId} onNavigate={useNavigate()} onBack={() => router.push('/subscriptions')} />
-  );
+  const id = (params.id as string) ?? null;
+  return <RecordRedirect recordId={id} segment="subscriptions" load={() => api.subscriptions.one(id ?? '')} />;
 }

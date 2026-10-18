@@ -1,6 +1,7 @@
 export enum Provider {
   Lemonsqueezy = 'lemonsqueezy',
   Xendit = 'xendit',
+  Paymongo = 'paymongo',
 }
 
 export enum BillingMode {

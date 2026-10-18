@@ -5,26 +5,41 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import * as api from './api/client';
 import { useFetch } from './api/use-fetch';
-import { AceLogo, Icon, SearchInput } from './primitives';
-import { NAV } from './data';
+import { AceLogo, AppAvatar, Icon, SearchInput } from './primitives';
+import { AppHealth } from './api/types';
+import { useAppsChanged, useProvidersChanged } from './events';
+import { PROVIDER_THEME, PROVIDERS, providerTheme } from './provider-theme';
 import { Crumb } from './types';
 import { useAuth } from './auth/auth-context';
 
+/** Colour for an app's health dot (sidebar, overview). */
+export const HEALTH_DOT: Record<AppHealth, { color: string; label: string }> = {
+  live:            { color: 'var(--ok)',     label: 'Live' },
+  needs_attention: { color: 'var(--warn)',   label: 'Needs attention' },
+  not_ready:       { color: 'var(--bad)',    label: 'Not ready' },
+  inactive:        { color: 'var(--muted-2)', label: 'Inactive' },
+};
+
 /**
- * Sidebar derives its active state from the URL pathname rather than a
- * prop. Each nav item is a real <Link> so middle-click / right-click /
- * cmd-click all work the way users expect.
+ * Main sidebar: global pages, then every app (opening one shows its own
+ * provider menu in the inner sidebar), Add app, then provider config with a
+ * configured / not-configured mark. Active state comes from the URL, and every
+ * item is a real <Link> so cmd-click etc. work.
  */
 export function Sidebar() {
   const pathname = usePathname() ?? '/';
   const { user, logout } = useAuth();
   const initial = (user?.name?.[0] ?? user?.email?.[0] ?? 'A').toUpperCase();
   const display = user?.name ?? user?.email?.split('@')[0] ?? 'Admin';
-  const webhookStats = useFetch(
-    () => user ? api.webhookEvents.stats(24) : Promise.resolve(null),
-    [user?.id],
-  );
-  const webhookBadge = (webhookStats.data?.failed ?? 0) + (webhookStats.data?.exhausted ?? 0);
+
+  const apps = useFetch(() => (user ? api.apps.list() : Promise.resolve(null)), [user?.id]);
+  const statuses = useFetch(() => (user ? api.apps.statuses() : Promise.resolve(null)), [user?.id]);
+  const integrations = useFetch(() => (user ? api.integrations.list() : Promise.resolve(null)), [user?.id]);
+  useAppsChanged(React.useCallback(() => { apps.refetch(); statuses.refetch(); }, [apps.refetch, statuses.refetch]));
+  useProvidersChanged(React.useCallback(() => { integrations.refetch(); statuses.refetch(); }, [integrations.refetch, statuses.refetch]));
+
+  const statusById = new Map((statuses.data?.data ?? []).map((s) => [s.appId, s.status]));
+  const configured = new Map((integrations.data?.integrations ?? []).map((i) => [i.provider, i.configured]));
 
   const isActive = (href: string): boolean =>
     pathname === href || pathname.startsWith(href + '/');
@@ -48,50 +63,73 @@ export function Sidebar() {
       </Link>
 
       <nav className="rail-nav" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-        {NAV.map((n, i) => {
-          const active = isActive(n.href);
-          const newGroup = i === 0 || NAV[i - 1].group !== n.group;
+        <NavLink href="/dashboard" label="Dashboard" icon="dash" tint="#4F7CF7" active={isActive('/dashboard')} />
+
+        <NavGroup label="Apps" action={<Link href="/apps" style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>View all</Link>} />
+        {apps.loading && !apps.data && <div style={{ fontSize: 12, color: 'var(--muted-2)', padding: '4px 8px' }}>Loading…</div>}
+        {(apps.data?.data ?? []).map((a) => {
+          const theme = providerTheme(a.providers[0]);
+          const health = statusById.get(a.id);
           return (
-            <React.Fragment key={n.id}>
-              {newGroup && (
-                <div className="nav-group" style={{
-                  fontSize: 10.5, fontWeight: 650, color: 'var(--muted-2)',
-                  textTransform: 'uppercase', letterSpacing: 0.7, padding: '0 8px',
-                }}>{GROUP_LABELS[n.group] ?? n.group}</div>
-              )}
-              <Link
-                href={n.href}
-                className="nav-link"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '5px 8px', borderRadius: 10,
-                  background: active ? `${n.tint}14` : undefined,
-                  color: active ? 'var(--ink)' : 'var(--ink-2)',
-                  fontSize: 13, fontWeight: active ? 650 : 500,
-                  transition: 'background 120ms',
-                }}
-              >
-                <span className="nav-icon" style={{
-                  borderRadius: 9, flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: active ? n.tint : `${n.tint}14`,
-                  boxShadow: active ? `0 4px 10px -4px ${n.tint}` : 'none',
-                }}>
-                  <Icon name={n.icon} size={15} strokeWidth={1.9} color={active ? '#fff' : n.tint} />
+            <NavLink
+              key={a.id}
+              href={`/apps/${a.id}`}
+              label={a.name}
+              active={pathname === `/apps/${a.id}` || pathname.startsWith(`/apps/${a.id}/`)}
+              tint={theme ? `var(--brand-${theme.id === 'lemonsqueezy' ? 'lemon' : theme.id})` : '#8B93A7'}
+              leading={<AppAvatar name={a.name} size={22} />}
+              trailing={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {theme && (
+                    <span title={theme.label} style={{
+                      fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 5,
+                      background: theme.soft, color: theme.ink,
+                    }}>{theme.short}</span>
+                  )}
+                  {health && (
+                    <span title={HEALTH_DOT[health].label} style={{
+                      width: 7, height: 7, borderRadius: 7, background: HEALTH_DOT[health].color, flexShrink: 0,
+                    }} />
+                  )}
                 </span>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.label}</span>
-                {n.id === 'webhooks' && webhookBadge > 0 && (
-                  <span style={{
-                    minWidth: 18, height: 18, padding: '0 5px', borderRadius: 9,
-                    background: 'var(--bad)', color: '#fff',
-                    fontSize: 10, fontWeight: 700,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>{webhookBadge > 99 ? '99+' : webhookBadge}</span>
-                )}
-              </Link>
-            </React.Fragment>
+              }
+            />
           );
         })}
+        <NavLink href="/apps/new" label="Add app" icon="plus" tint="#4F7CF7" active={pathname === '/apps/new'} muted />
+
+        <NavGroup label="Provider config" />
+        {PROVIDERS.map((p) => {
+          const t = PROVIDER_THEME[p];
+          const ok = configured.get(p);
+          return (
+            <NavLink
+              key={p}
+              href={`/providers/${p}`}
+              label={t.label}
+              active={isActive(`/providers/${p}`)}
+              tint={t.ink}
+              leading={
+                <span className="nav-icon" style={{
+                  borderRadius: 9, flexShrink: 0, background: t.brand, color: t.onBrand,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9.5, fontWeight: 800,
+                }}>{t.short}</span>
+              }
+              trailing={ok === undefined ? null : (
+                <span title={ok ? 'Configured' : 'Not configured'} style={{
+                  fontSize: 10, fontWeight: 650, padding: '1px 6px', borderRadius: 999,
+                  background: ok ? 'var(--ok-soft)' : 'var(--warn-soft)',
+                  color: ok ? 'var(--ok)' : 'var(--warn)',
+                }}>{ok ? '✓' : 'Set up'}</span>
+              )}
+            />
+          );
+        })}
+
+        <NavGroup label="System" />
+        <NavLink href="/logs" label="Activity logs" icon="log" tint="#64748B" active={isActive('/logs')} />
+        <NavLink href="/notifications" label="Notifications" icon="bell" tint="#EF4444" active={isActive('/notifications')} />
       </nav>
 
       <div style={{
@@ -121,12 +159,57 @@ export function Sidebar() {
   );
 }
 
-const GROUP_LABELS: Record<string, string> = {
-  overview: 'Overview',
-  billing: 'Billing',
-  marketplace: 'Marketplace',
-  system: 'System',
-};
+export function NavGroup({ label, action }: { label: string; action?: ReactNode }) {
+  return (
+    <div className="nav-group" style={{
+      fontSize: 10.5, fontWeight: 650, color: 'var(--muted-2)',
+      textTransform: 'uppercase', letterSpacing: 0.7, padding: '0 8px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    }}>
+      <span>{label}</span>
+      {action}
+    </div>
+  );
+}
+
+/** One rail item: a tinted icon chip (or custom `leading`), label, optional trailing badge. */
+export function NavLink({ href, label, icon, tint, active, leading, trailing, muted }: {
+  href: string;
+  label: string;
+  icon?: string;
+  tint: string;
+  active: boolean;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="nav-link"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '5px 8px', borderRadius: 10,
+        background: active ? `color-mix(in srgb, ${tint} 9%, transparent)` : undefined,
+        color: active ? 'var(--ink)' : muted ? 'var(--muted)' : 'var(--ink-2)',
+        fontSize: 13, fontWeight: active ? 650 : 500,
+        transition: 'background 120ms',
+      }}
+    >
+      {leading ?? (
+        <span className="nav-icon" style={{
+          borderRadius: 9, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: active ? tint : `color-mix(in srgb, ${tint} 9%, transparent)`,
+        }}>
+          <Icon name={icon ?? 'dash'} size={15} strokeWidth={1.9} color={active ? '#fff' : tint} />
+        </span>
+      )}
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      {trailing}
+    </Link>
+  );
+}
 
 type SearchProps = {
   value?: string;

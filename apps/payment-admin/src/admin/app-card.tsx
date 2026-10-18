@@ -47,7 +47,7 @@ export function AddAppTile({ onClick }: { onClick: () => void }) {
         minHeight: 200, borderRadius: 'var(--radius)',
         border: '2px dashed var(--border)', background: 'transparent',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10,
-        color: 'var(--accent)', fontSize: 13, fontWeight: 650, cursor: 'pointer',
+        color: 'var(--accent-text)', fontSize: 13, fontWeight: 650, cursor: 'pointer',
       }}
     >
       <span style={{

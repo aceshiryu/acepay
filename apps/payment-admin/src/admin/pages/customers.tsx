@@ -7,32 +7,42 @@ import { GuardedView, LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
 import { CustomerListRow } from '../api/types';
 import { PageShell } from '../layout';
-import { Card, FilterSelect, Icon, Table, AppAvatar } from '../primitives';
+import { Card, FilterSelect, Icon, StatusBadge, Table, AppAvatar } from '../primitives';
 import { MiniStatCard } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, useAppScope } from '../app-scope';
 
 const PAGE_SIZE = 20;
 
-export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigate }) {
+export function CustomersPage({ onNavigate: _onNavigate, variant = 'customers' }: {
+  onNavigate: Navigate;
+  /** `payment-methods`: the same customers, showing each one's saved Xendit card. */
+  variant?: 'customers' | 'payment-methods';
+}) {
+  const scope = useAppScope();
   const [appFilter, setAppFilter] = React.useState('All');
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
 
-  const apps = useFetch(() => api.apps.list(), []);
-  const stats = useFetch(() => api.customers.stats(), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
+  const stats = useFetch(() => api.customers.stats(scope?.app.id), [scope?.app.id]);
   const query: api.CustomerListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
     search: search || undefined,
   };
   const list = useFetch(() => api.customers.list(query), [JSON.stringify(query)]);
 
   const appOptions = ['All', ...(apps.data?.data ?? []).map((a) => ({ value: a.id, label: a.name }))];
 
+  const pm = variant === 'payment-methods';
+  const title = pm ? 'Payment methods' : 'Customers';
+
   return (
     <PageShell
-      title="Customers"
-      breadcrumbs={[{ label: 'Directory' }, { label: 'Customers' }]}
+      title={title}
+      subtitle={pm ? 'The card each customer saved on their first Xendit payment. Renewals charge it.' : undefined}
+      breadcrumbs={scope ? scopeCrumbs(scope, title) : [{ label: 'Directory' }, { label: 'Customers' }]}
       search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search code, name, email, external id…', width: 280 }}
     >
       <GuardedView
@@ -40,21 +50,21 @@ export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigat
         height={70}
         render={(s) => (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
-            <MiniStatCard label="Total Customers" value={s.total} sub="across all apps" />
+            <MiniStatCard label="Total Customers" value={s.total} sub={scope ? 'in this app' : 'across all apps'} />
             <MiniStatCard label="With Subscriptions" value={s.withSubscriptions} sub="active recurring" />
             <MiniStatCard label="Joined This Month" value={s.joinedThisMonth} sub="new" />
-            <MiniStatCard
+            {!scope && <MiniStatCard
               label="Top App"
               value={s.topApp?.name ?? '—'}
               sub={s.topApp ? `${s.topApp.count} customers` : 'no customers yet'}
-            />
+            />}
           </div>
         )}
       />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }} options={appOptions} />
+        {!scope && <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }} options={appOptions} />}
         <div style={{ flex: 1 }} />
         {list.data && (
           <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{list.data.total} customers</span>
@@ -68,7 +78,7 @@ export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigat
           <>
             <Table<CustomerListRow>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.customer.code}</span> },
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)' }}>{r.customer.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.customer.app?.name ?? '?'} size={18} />{r.customer.app?.name ?? '—'}
@@ -82,12 +92,19 @@ export function CustomersPage({ onNavigate: _onNavigate }: { onNavigate: Navigat
                 )},
                 { key: 'email', label: 'Email', render: (r) => <span style={{ color: 'var(--ink-2)' }}>{r.customer.email}</span> },
                 { key: 'externalId', label: 'External ID', render: (r) => <span className="mono" style={{ color: 'var(--muted)', fontSize: 11.5 }}>{r.customer.externalId}</span> },
+                { key: 'pmStatus', label: 'Saved card', render: (r) => r.customer.xenditPaymentMethodStatus
+                  ? <StatusBadge status={r.customer.xenditPaymentMethodStatus} size="sm" />
+                  : <span style={{ color: 'var(--muted)' }}>none</span> },
+                { key: 'pmId', label: 'Payment method ID', render: (r) => (
+                  <span className="mono" style={{ color: 'var(--muted)', fontSize: 11.5 }}>{r.customer.xenditPaymentMethodId ?? '—'}</span>
+                )},
                 { key: 'subs', label: 'Subs', align: 'right', render: (r) => <span className="mono" style={{ fontWeight: r.subscriptionsCount ? 600 : 400, color: r.subscriptionsCount ? 'var(--ink)' : 'var(--muted)' }}>{r.subscriptionsCount}</span> },
                 { key: 'tx', label: 'TX', align: 'right', render: (r) => <span className="mono">{r.transactionsCount}</span> },
                 { key: 'joined', label: 'Joined', align: 'right', render: (r) => <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{formatRelative(r.customer.createdAt)}</span> },
               ]}
               rows={list.data.data}
               getRowKey={(r) => r.customer.id}
+              hide={[...(scope ? ['app'] : []), ...(pm ? ['externalId', 'tx', 'joined'] : ['pmStatus', 'pmId'])]}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
           </>

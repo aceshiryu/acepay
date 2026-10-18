@@ -23,7 +23,7 @@ import { TransactionLoggerService } from '../../common/services/transaction-logg
 import { App, Customer, Subscription, Transaction, WebhookEvent } from '../../database/entities';
 import { ProviderRegistry } from '../../payment-providers/provider.registry';
 import { NormalizedEvent } from '../../payment-providers/provider.types';
-import { WebhooksService } from './webhooks.service';
+import { nonReusableXenditMethod, WebhooksService } from './webhooks.service';
 
 const BODY = Buffer.from('{}');
 
@@ -341,6 +341,64 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
       expect(txLogger.log.mock.calls[0][0].actor).toBe(LogActor.Provider);
     });
 
+    describe('provider-reported refunds (PayMongo payment.refunded)', () => {
+      const refundRow = (o: Partial<Transaction> = {}) => ({
+        id: 'refund-1', appId: 'app-1', type: TransactionType.Refund, status: TransactionStatus.Pending,
+        amount: -10000, providerTxId: 'ref_1', metadata: { refundOf: TX_ID }, ...o,
+      }) as Transaction;
+      let rows: Transaction[];
+
+      beforeEach(() => {
+        rows = [refundRow(), refundRow({ id: 'refund-2', providerTxId: 'ref_2' })];
+        (transactions as unknown as { createQueryBuilder: jest.Mock }).createQueryBuilder = jest.fn(() => {
+          const qb = { where: jest.fn(), andWhere: jest.fn(), getMany: jest.fn(async () => rows) };
+          qb.where.mockReturnValue(qb); qb.andWhere.mockReturnValue(qb);
+          return qb;
+        });
+        transactions.findOne.mockResolvedValue(tx({ type: TransactionType.Payment, status: TransactionStatus.Succeeded, amount: 25000 }));
+      });
+
+      it('settles only the refund rows the provider reports, and leaves a partially refunded payment Succeeded', async () => {
+        adapter.normalizeEvent.mockReturnValue(paymentEvent({
+          event: 'refund.succeeded', status: TransactionStatus.Succeeded, acepayTxId: null, providerTxId: 'pi_1',
+          refunds: [{ providerRefundId: 'ref_1', amount: 10000, status: TransactionStatus.Refunded }],
+        }));
+        await service.handle(Provider.Paymongo, BODY, 'sig');
+        expect(rows[0].status).toBe(TransactionStatus.Refunded);
+        expect(rows[1].status).toBe(TransactionStatus.Pending);
+        const saved = transactions.save.mock.calls.map((c) => c[0]);
+        expect(saved.some((t) => t.id === TX_ID)).toBe(false); // payment untouched
+        expect(txLogger.log.mock.calls.map((c) => c[0].action)).toEqual([LogAction.PaymentRefunded]);
+      });
+
+      it('marks a failed provider refund as failed so it stops counting toward the refunded total', async () => {
+        adapter.normalizeEvent.mockReturnValue(paymentEvent({
+          event: 'refund.succeeded', status: TransactionStatus.Succeeded, acepayTxId: null, providerTxId: 'pi_1',
+          refunds: [{ providerRefundId: 'ref_2', amount: 10000, status: TransactionStatus.Failed }],
+        }));
+        await service.handle(Provider.Paymongo, BODY, 'sig');
+        expect(rows[1].status).toBe(TransactionStatus.Failed);
+      });
+
+      it('does not settle anything when the matched transaction is itself a refund', async () => {
+        transactions.findOne.mockResolvedValue(tx({ type: TransactionType.Refund }));
+        adapter.normalizeEvent.mockReturnValue(paymentEvent({
+          event: 'refund.succeeded', status: TransactionStatus.Refunded,
+          refunds: [{ providerRefundId: 'ref_1', amount: 10000, status: TransactionStatus.Refunded }],
+        }));
+        await service.handle(Provider.Paymongo, BODY, 'sig');
+        expect(rows[0].status).toBe(TransactionStatus.Pending);
+      });
+    });
+
+    it('records the payment channel the provider reports', async () => {
+      const t = tx({ status: TransactionStatus.Pending, paymentChannel: null });
+      transactions.findOne.mockResolvedValue(t);
+      adapter.normalizeEvent.mockReturnValue(paymentEvent({ status: TransactionStatus.Succeeded, paymentChannel: 'GCASH' }));
+      await service.handle(Provider.Paymongo, BODY, 'sig');
+      expect(t.paymentChannel).toBe('GCASH');
+    });
+
     it('logs only the receipt for an event with no status mapping', async () => {
       adapter.normalizeEvent.mockReturnValue(paymentEvent({ event: 'payment.pending' }));
       transactions.findOne.mockResolvedValue(tx());
@@ -655,6 +713,43 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
 
   // Without the saved payment method there is no recurring billing at all —
   // this is the hand-off from hosted checkout to AcePay-managed charging.
+  describe('PayMongo subscription payment', () => {
+    function invoicePaid(overrides: Partial<NormalizedEvent> = {}) {
+      return subEvent({
+        event: 'subscription.payment_succeeded', provider: Provider.Paymongo,
+        acepaySubscriptionId: null, providerSubscriptionId: 'subs_1', providerTxId: 'pi_7',
+        status: TransactionStatus.Succeeded, subscriptionStatus: SubscriptionStatus.Active,
+        periodStart: new Date('2026-11-01T00:00:00Z'),
+        ...overrides,
+      });
+    }
+
+    it('clears the first-payment flag and sets the period from the invoice due date + plan interval', async () => {
+      adapter.normalizeEvent.mockReturnValue(invoicePaid());
+      const s = sub({
+        provider: Provider.Paymongo, providerSubscriptionId: 'subs_1',
+        metadata: { awaitingFirstPayment: true, checkoutUrl: 'https://pay/x', paymongo: { successUrl: 'a://ok' } },
+      });
+      subscriptions.findOne.mockResolvedValue(s);
+      await service.handle(Provider.Paymongo, BODY, 'sig');
+      expect(s.metadata).toEqual({ paymongo: { successUrl: 'a://ok' } });
+      expect(s.currentPeriodStart).toEqual(new Date('2026-11-01T00:00:00Z'));
+      expect(s.currentPeriodEnd).toEqual(new Date('2026-12-01T00:00:00Z'));
+    });
+
+    it('records the charge against the payment intent, so it can be refunded later', async () => {
+      adapter.normalizeEvent.mockReturnValue(invoicePaid());
+      subscriptions.findOne.mockResolvedValue(sub({ provider: Provider.Paymongo, providerSubscriptionId: 'subs_1' }));
+      await service.handle(Provider.Paymongo, BODY, 'sig');
+      expect(transactions.create).toHaveBeenCalledWith(expect.objectContaining({
+        provider: Provider.Paymongo, providerTxId: 'pi_7', status: TransactionStatus.Succeeded, amount: 49900,
+      }));
+      // PayMongo bills itself: nothing is put on AcePay's billing queue.
+      expect(billingQueue.enqueue).not.toHaveBeenCalled();
+      expect(chargeWithPaymentMethod).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Xendit first payment', () => {
     function xenditFirstPayment(raw: Record<string, unknown> = { payment_method_id: 'pm-1' }) {
       return subEvent({
@@ -677,6 +772,48 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
         xenditPaymentMethodId: 'pm-1',
         xenditPaymentMethodStatus: XenditPaymentMethodStatus.Active,
       }));
+    });
+
+    // Without the Xendit customer id the renewal worker can't charge, and every
+    // Xendit subscription went past_due at cycle 2 (found in sandbox testing).
+    it.each([
+      ['the invoice metadata AcePay set', { payment_method_id: 'pm-1', metadata: { xendit_customer_id: 'cust-77' } }],
+      ['the callback\'s customer_id', { payment_method_id: 'pm-1', customer_id: 'cust-77' }],
+    ])('saves the Xendit customer id from %s', async (_label, raw) => {
+      adapter.normalizeEvent.mockReturnValue(xenditFirstPayment(raw));
+      await service.handle(Provider.Xendit, BODY, 'tok');
+      expect(customers.save).toHaveBeenCalledWith(expect.objectContaining({
+        xenditPaymentMethodId: 'pm-1', xenditCustomerId: 'cust-77',
+      }));
+    });
+
+    // Only a card leaves a reusable method. A GCash-paid invoice still carries a
+    // payment_method_id, but renewing with it fails "Payment method provided is
+    // not active" (sandbox) — flag it now, a month before that failure.
+    it('does not arm renewals with a one-time (e-wallet) payment method, and says why', async () => {
+      const s = sub({ provider: Provider.Xendit });
+      subscriptions.findOne.mockResolvedValue(s);
+      adapter.normalizeEvent.mockReturnValue(xenditFirstPayment({
+        payment_method_id: 'pm-gcash', payment_method: 'EWALLET', payment_channel: 'GCASH',
+      }));
+      await service.handle(Provider.Xendit, BODY, 'tok');
+      expect(customers.save).not.toHaveBeenCalledWith(expect.objectContaining({ xenditPaymentMethodId: 'pm-gcash' }));
+      expect(s.metadata).toMatchObject({
+        recurringUnavailable: true,
+        recurringUnavailableReason: 'first_payment_method_not_reusable',
+        recurringUnavailableDetail: expect.stringContaining('GCASH (e-wallet)'),
+      });
+      // Cycle 1 is still a real, paid charge.
+      expect(transactions.create).toHaveBeenCalledWith(expect.objectContaining({ status: TransactionStatus.Succeeded }));
+    });
+
+    it('arms renewals with a card payment method', async () => {
+      const s = sub({ provider: Provider.Xendit });
+      subscriptions.findOne.mockResolvedValue(s);
+      adapter.normalizeEvent.mockReturnValue(xenditFirstPayment({ payment_method_id: 'pm-card', payment_method: 'CREDIT_CARD' }));
+      await service.handle(Provider.Xendit, BODY, 'tok');
+      expect(customers.save).toHaveBeenCalledWith(expect.objectContaining({ xenditPaymentMethodId: 'pm-card' }));
+      expect((s.metadata as Record<string, unknown>).recurringUnavailable).toBeUndefined();
     });
 
     it('accepts payment_id as a fallback for payment_method_id', async () => {
@@ -970,5 +1107,17 @@ describe('WebhooksService (/v1/webhooks/*)', () => {
       expect(deliveryQueue.enqueue).not.toHaveBeenCalled();
       expect(res).toMatchObject({ duplicate: false, eventId: 'evt-row-1' });
     });
+  });
+});
+
+describe('nonReusableXenditMethod', () => {
+  it.each([
+    [{ payment_method: 'EWALLET', payment_channel: 'GCASH' }, 'GCASH (e-wallet)'],
+    [{ payment_method: 'QR_CODE', payment_channel: 'QRPH' }, 'QRPH (qr code)'],
+    [{ payment_method: 'BANK_TRANSFER' }, 'bank transfer'],
+    [{ payment_method: 'CREDIT_CARD', payment_channel: 'CREDIT_CARD' }, null],
+    [{}, null], // payload doesn't say: trust the payment method, as before
+  ])('%j → %p', (raw, expected) => {
+    expect(nonReusableXenditMethod(raw as Record<string, unknown>)).toBe(expected);
   });
 });

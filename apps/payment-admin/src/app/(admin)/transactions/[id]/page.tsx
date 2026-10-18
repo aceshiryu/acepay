@@ -1,14 +1,12 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { TransactionDetailPage } from '../../../../admin/pages/transactions';
-import { useNavigate } from '../../../../admin/navigate';
+import { useParams } from 'next/navigation';
+import * as api from '@/admin/api/client';
+import { RecordRedirect } from '@/admin/redirects';
 
+/** Old global URL: records now live under their app. */
 export default function Page() {
   const params = useParams();
-  const router = useRouter();
-  const txId = (params.id as string) ?? null;
-  return (
-    <TransactionDetailPage txId={txId} onNavigate={useNavigate()} onBack={() => router.push('/transactions')} />
-  );
+  const id = (params.id as string) ?? null;
+  return <RecordRedirect recordId={id} segment="payments" load={() => api.transactions.one(id ?? '')} />;
 }

@@ -1,19 +1,12 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { MerchantDetailPage } from '../../../../admin/pages/merchants';
-import { useNavigate } from '../../../../admin/navigate';
+import { useParams } from 'next/navigation';
+import * as api from '@/admin/api/client';
+import { RecordRedirect } from '@/admin/redirects';
 
+/** Old global URL: records now live under their app. */
 export default function Page() {
   const params = useParams();
-  const router = useRouter();
-  const merchantId = (params.id as string) ?? null;
-  return (
-    <MerchantDetailPage
-      key={merchantId ?? ''}
-      merchantId={merchantId}
-      onNavigate={useNavigate()}
-      onBack={() => router.push('/merchants')}
-    />
-  );
+  const id = (params.id as string) ?? null;
+  return <RecordRedirect recordId={id} segment="merchants" load={() => api.merchants.one(id ?? '')} />;
 }

@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { ProviderCredentialsService } from './provider-credentials.service';
 import { TransactionStatus } from '../common/enums';
 
 // Mock the xendit-node SDK. The adapter does `new Xendit({...})` then calls
@@ -8,6 +8,7 @@ const mockRefund = { createRefund: jest.fn() };
 const mockPaymentRequest = { createPaymentRequest: jest.fn() };
 const mockCustomer = { getCustomerByReferenceID: jest.fn(), createCustomer: jest.fn() };
 const mockPaymentMethod = { createPaymentMethod: jest.fn(), getPaymentMethodByID: jest.fn() };
+const mockBalance = { getBalance: jest.fn() };
 
 jest.mock('xendit-node', () => ({
   Xendit: jest.fn().mockImplementation(() => ({
@@ -16,20 +17,21 @@ jest.mock('xendit-node', () => ({
     PaymentRequest: mockPaymentRequest,
     Customer: mockCustomer,
     PaymentMethod: mockPaymentMethod,
+    Balance: mockBalance,
   })),
 }));
 
-import { sameToken, XenditAdapter } from './xendit.adapter';
+import { describeXenditError, sameToken, XenditAdapter, XenditChargeError, xenditKeyMode } from './xendit.adapter';
 
 const WEBHOOK_TOKEN = 'xnd_callback_token';
 
-function makeConfig(overrides: Record<string, string | undefined> = {}): ConfigService {
+function makeConfig(overrides: Record<string, string | undefined> = {}): ProviderCredentialsService {
   const env: Record<string, string | undefined> = {
     XENDIT_SECRET_KEY: 'xnd_key',
     XENDIT_WEBHOOK_TOKEN: WEBHOOK_TOKEN,
     ...overrides,
   };
-  return { get: (k: string) => env[k] } as unknown as ConfigService;
+  return { get: (k: string) => env[k] } as unknown as ProviderCredentialsService;
 }
 
 /** A minimal successful createInvoice response. */
@@ -216,9 +218,13 @@ describe('XenditAdapter', () => {
         referenceId: 'sub_9_cycle_2',
         metadata: { acepay_subscription: 'sub_9' },
       });
+      // An existing saved method is charged by payment_method_id. A nested
+      // `paymentMethod` object asks Xendit to CREATE one, which it rejects with
+      // "payment_method.type is required" — every renewal failed that way.
       expect(mockPaymentRequest.createPaymentRequest).toHaveBeenCalledWith({
-        data: expect.objectContaining({ amount: 499, currency: 'PHP', paymentMethod: { id: 'pm_1' } }),
+        data: expect.objectContaining({ amount: 499, currency: 'PHP', paymentMethodId: 'pm_1', customerId: 'cus_1' }),
       });
+      expect(dataOf(mockPaymentRequest.createPaymentRequest)).not.toHaveProperty('paymentMethod');
       expect(res.status).toBe('SUCCEEDED');
       expect(res.paymentRequestId).toBe('pr_1');
     });
@@ -383,6 +389,13 @@ describe('XenditAdapter', () => {
       const res = await adapter.createSubscription(subscriptionParams());
       expect(res.providerCheckoutId).toBe('inv_sub_1');
       expect(res.checkoutUrl).toBe('https://checkout.xendit.co/inv_sub_1');
+    });
+
+    // The invoice callback carries neither customer_id nor our metadata, so this
+    // is the only place the renewal charge's Xendit customer can come from.
+    it('returns the Xendit customer it created the invoice under', async () => {
+      const res = await adapter.createSubscription(subscriptionParams());
+      expect(res.providerCustomerId).toBe('xcus-1');
     });
 
     it('throws when no checkout URL comes back', async () => {
@@ -792,6 +805,73 @@ describe('XenditAdapter', () => {
       const md = dataOf(mockInvoice.createInvoice).metadata as Record<string, string>;
       expect(md.zero).toBe('0');
       expect(md.blank).toBe('');
+    });
+  });
+
+  describe('checkConnection', () => {
+    it('reads the master account balance (no for-user-id)', async () => {
+      mockBalance.getBalance.mockResolvedValue({ balance: 12500 });
+      const a = new XenditAdapter(makeConfig({ XENDIT_SECRET_KEY: 'xnd_development_abc' }));
+      await expect(a.checkConnection()).resolves.toEqual({
+        ok: true, mode: 'test', detail: 'Connected. Master account cash balance: PHP 12,500',
+      });
+      expect(mockBalance.getBalance).toHaveBeenCalledWith({ accountType: 'CASH', currency: 'PHP' });
+    });
+
+    it('returns the provider error instead of throwing', async () => {
+      mockBalance.getBalance.mockRejectedValue(new Error('INVALID_API_KEY'));
+      const a = new XenditAdapter(makeConfig({ XENDIT_SECRET_KEY: 'xnd_production_abc' }));
+      await expect(a.checkConnection()).resolves.toEqual({ ok: false, mode: 'live', detail: 'INVALID_API_KEY' });
+    });
+
+    it('returns a missing secret key as a failed check', async () => {
+      const a = new XenditAdapter(makeConfig({ XENDIT_SECRET_KEY: undefined }));
+      await expect(a.checkConnection()).resolves.toEqual({
+        ok: false, mode: 'unknown', detail: 'XENDIT_SECRET_KEY env var is not set',
+      });
+    });
+  });
+
+  describe('xenditKeyMode', () => {
+    it.each([
+      ['xnd_production_x', 'live'], ['xnd_development_x', 'test'], ['xnd_key', 'unknown'], [undefined, 'unknown'],
+    ])('%p → %p', (key, mode) => {
+      expect(xenditKeyMode(key)).toBe(mode);
+    });
+  });
+
+  describe('describeXenditError', () => {
+    it("adds Xendit's error code and message to the SDK's bare status line", () => {
+      expect(describeXenditError({
+        message: '[Xendit SDK Error] 400 Bad Request', errorCode: 'INVALID_PAYMENT_METHOD', errorMessage: 'Payment method is not reusable',
+      })).toBe('[Xendit SDK Error] 400 Bad Request — INVALID_PAYMENT_METHOD: Payment method is not reusable');
+    });
+
+    it('does not repeat the status text as a message', () => {
+      expect(describeXenditError({ message: '[Xendit SDK Error] 400 Bad Request', errorMessage: 'Bad Request' }))
+        .toBe('[Xendit SDK Error] 400 Bad Request');
+    });
+
+    it('turns a charge failure into an error carrying the reason', async () => {
+      mockPaymentRequest.createPaymentRequest.mockRejectedValue({
+        message: '[Xendit SDK Error] 400 Bad Request', errorCode: 'API_VALIDATION_ERROR', errorMessage: 'customer_id does not match',
+      });
+      await expect(adapter.chargeWithPaymentMethod({
+        paymentMethodId: 'pm-1', xenditCustomerId: 'cust-1', amount: 14900, currency: 'PHP', referenceId: 'ref-1', metadata: {},
+      })).rejects.toThrow('API_VALIDATION_ERROR: customer_id does not match');
+    });
+
+    it("keeps Xendit's error code so a dead payment method can be told apart", async () => {
+      mockPaymentRequest.createPaymentRequest.mockRejectedValue({
+        message: '[Xendit SDK Error] 400 Bad Request', errorCode: 'INVALID_PAYMENT_METHOD', errorMessage: 'Payment method provided is not active',
+      });
+      const err = await adapter.chargeWithPaymentMethod({
+        paymentMethodId: 'pm-1', xenditCustomerId: 'cust-1', amount: 14900, currency: 'PHP', referenceId: 'ref-1', metadata: {},
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(XenditChargeError);
+      expect(err.code).toBe('INVALID_PAYMENT_METHOD');
+      expect(err.paymentMethodDead).toBe(true);
+      expect(new XenditChargeError('x', 'SERVER_ERROR').paymentMethodDead).toBe(false);
     });
   });
 });

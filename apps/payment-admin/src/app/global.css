@@ -14,6 +14,8 @@
   --accent-ink:   #FFFFFF;
   --accent-soft:  #E8EEFE;
   --accent-hover: #3F6BE6;
+  /* Accent used as text on a light surface (yellow is unreadable as text). */
+  --accent-text:  #4F7CF7;
 
   --ok:           #1F8A5B;
   --ok-soft:      #DDF3E8;
@@ -31,11 +33,18 @@
   --lemon-ink:   #8A6D00;
   --xendit-bg:   #E5EDFF;
   --xendit-ink:  #2457D6;
+  --paymongo-bg:  #DDF6EC;
+  --paymongo-ink: #12825A;
 
   /* Header colours for GatewayCard (providers, apps) */
   --brand-lemon:  #F5B700;
   --brand-xendit: #2F6BFF;
+  --brand-paymongo: #1DB37E;
   --brand-card:   #8B93A7;
+  --lemon-on:     #3D2E00;
+  --brand-lemon-hover:    #E0A800;
+  --brand-xendit-hover:   #1F57E6;
+  --brand-paymongo-hover: #169E6E;
 
   --radius:       12px;
   --radius-sm:    8px;
@@ -45,6 +54,21 @@
   --font-sans:    var(--font-inter), -apple-system, system-ui, sans-serif;
   --font-mono:    var(--font-jetbrains), ui-monospace, monospace;
   --font-serif:   var(--font-instrument), 'Iowan Old Style', serif;
+}
+
+/* Provider theme: wrapping a subtree in data-provider re-points the accent
+   tokens, so buttons, focus rings and selected states take the brand colour. */
+[data-provider="lemonsqueezy"] {
+  --accent: var(--brand-lemon); --accent-hover: var(--brand-lemon-hover);
+  --accent-soft: var(--lemon-bg); --accent-ink: var(--lemon-on); --accent-text: var(--lemon-ink);
+}
+[data-provider="xendit"] {
+  --accent: var(--brand-xendit); --accent-hover: var(--brand-xendit-hover);
+  --accent-soft: var(--xendit-bg); --accent-ink: #FFFFFF; --accent-text: var(--xendit-ink);
+}
+[data-provider="paymongo"] {
+  --accent: var(--brand-paymongo); --accent-hover: var(--brand-paymongo-hover);
+  --accent-soft: var(--paymongo-bg); --accent-ink: #FFFFFF; --accent-text: var(--paymongo-ink);
 }
 
 * { box-sizing: border-box; }

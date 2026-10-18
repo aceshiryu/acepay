@@ -34,7 +34,7 @@ export function ErrorBlock({ error, onRetry }: {
               onClick={onRetry}
               style={{
                 marginTop: 8, background: 'none', border: 'none', padding: 0,
-                fontSize: 12, color: 'var(--accent)', fontWeight: 550, cursor: 'pointer',
+                fontSize: 12, color: 'var(--accent-text)', fontWeight: 550, cursor: 'pointer',
               }}
             >
               Retry

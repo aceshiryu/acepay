@@ -298,7 +298,7 @@ export function CredentialReveal({ label, value }: { label: string; value: strin
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</span>
         <button onClick={() => setRevealed((r) => !r)}
-          style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, color: 'var(--accent)', fontWeight: 550, cursor: 'pointer' }}>
+          style={{ background: 'none', border: 'none', padding: 0, fontSize: 11.5, color: 'var(--accent-text)', fontWeight: 550, cursor: 'pointer' }}>
           {revealed ? 'Hide' : 'Reveal'}
         </button>
       </div>

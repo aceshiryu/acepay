@@ -1,8 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { SettingsPage } from '../../../admin/pages/settings';
-import { useNavigate } from '../../../admin/navigate';
-
+// Settings became the per-provider config pages; keep old bookmarks working.
 export default function Page() {
-  return <SettingsPage onNavigate={useNavigate()} />;
+  redirect('/providers/lemonsqueezy');
 }

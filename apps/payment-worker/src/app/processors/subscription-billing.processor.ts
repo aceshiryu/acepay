@@ -15,7 +15,7 @@ import {
 import {
   onChargeFailed, onChargeSucceeded, readDunning,
 } from '../../../../payment-gateway/src/common/billing/dunning';
-import { XenditAdapter } from '../../../../payment-gateway/src/payment-providers/xendit.adapter';
+import { XenditAdapter, XenditChargeError } from '../../../../payment-gateway/src/payment-providers/xendit.adapter';
 import {
   Subscription, Transaction, WebhookEvent,
 } from '../../../../payment-gateway/src/database/entities';
@@ -66,7 +66,7 @@ export class SubscriptionBillingProcessor {
       // schedule survives; when the app resumes (status -> active) the next
       // firing charges normally. Check back in a day.
       this.logger.log(`Sub ${subscriptionId} is paused — deferring cycle ${cycleNumber}`);
-      await this.billingQueue.enqueue({ subscriptionId: sub.id, cycleNumber }, PAUSE_RECHECK_MS);
+      await this.billingQueue.enqueue({ subscriptionId: sub.id, cycleNumber }, PAUSE_RECHECK_MS, `paused-${Date.now()}`);
       return;
     }
     if (sub.status === SubscriptionStatus.Canceled) {
@@ -99,10 +99,21 @@ export class SubscriptionBillingProcessor {
       this.logger.debug(`Sub ${subscriptionId} provider=${sub.provider} — billing handled by provider, not AcePay`);
       return;
     }
+    // Renewals known to be impossible: fail once, visibly, instead of charging
+    // (or silently going past_due, as the no-payment-method case used to).
+    const meta = (sub.metadata ?? {}) as Record<string, unknown>;
+    if (meta.recurringUnavailable) {
+      await this.failWithoutRetry(
+        sub, cycleNumber, String(meta.recurringUnavailableReason ?? 'recurring_unavailable'),
+        String(meta.recurringUnavailableDetail ?? 'Renewals are not set up for this subscription.'),
+      );
+      return;
+    }
     if (!sub.customer?.xenditPaymentMethodId || !sub.customer.xenditCustomerId) {
-      this.logger.warn(`Sub ${subscriptionId} customer has no saved PaymentMethod — cannot bill cycle ${cycleNumber}`);
-      sub.status = SubscriptionStatus.PastDue;
-      await this.subs.save(sub);
+      await this.failWithoutRetry(
+        sub, cycleNumber, 'no_saved_payment_method',
+        'No reusable payment method is saved for this customer, so renewals cannot be charged.',
+      );
       return;
     }
     if (!sub.plan) {
@@ -129,8 +140,25 @@ export class SubscriptionBillingProcessor {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Xendit charge threw for sub ${subscriptionId}: ${msg}`);
-      throw err; // Bull retries per queue policy
+      this.logger.error(`Xendit charge threw for sub ${subscriptionId} (attempt ${job.attemptsMade + 1}): ${msg}`);
+      // A dead payment method (e.g. the one-time method an e-wallet first
+      // payment leaves) fails the same way every time: retrying for 9 days only
+      // books 4 more failures. Stop now and tell the app.
+      if (err instanceof XenditChargeError && err.paymentMethodDead) {
+        await this.failWithoutRetry(
+          sub, cycleNumber, 'payment_method_rejected',
+          `Xendit refused the saved payment method (${err.code}). The customer needs to add a card.`,
+        );
+        return;
+      }
+      // Bull retries a throw (network blips). But once its attempts are used
+      // up, a rethrow just parks the job as failed: the subscription stays
+      // active and never bills, and nobody is told. Found in sandbox with an
+      // API key Xendit rejected (401). On the last attempt, treat it as a
+      // failed charge instead, so dunning, past_due and the app webhook happen.
+      const lastAttempt = job.attemptsMade + 1 >= (job.opts?.attempts ?? 1);
+      if (!lastAttempt) throw err;
+      charge = { paymentRequestId: '', status: 'FAILED' as const, failureCode: msg.slice(0, 200), raw: {} };
     }
 
     const isSuccess = charge.status === 'SUCCEEDED';
@@ -141,7 +169,7 @@ export class SubscriptionBillingProcessor {
       customerId: sub.customerId,
       subscriptionId: sub.id,
       provider: Provider.Xendit,
-      providerTxId: charge.paymentRequestId,
+      providerTxId: charge.paymentRequestId || null,
       type: TransactionType.SubscriptionPayment,
       status: isSuccess
         ? TransactionStatus.Succeeded
@@ -150,7 +178,7 @@ export class SubscriptionBillingProcessor {
         : TransactionStatus.Failed,
       amount: sub.plan.amount,
       currency: sub.plan.currency,
-      description: `${sub.plan.name} — cycle ${cycleNumber}`,
+      description: `${sub.plan.name} — cycle ${cycleNumber}${!isSuccess && !isPending && charge.failureCode ? ` (${charge.failureCode})` : ''}`,
       providerCompletedAt: isSuccess ? new Date() : null,
       webhookReceivedAt: new Date(),
     });
@@ -191,6 +219,7 @@ export class SubscriptionBillingProcessor {
         await this.billingQueue.enqueue(
           { subscriptionId: sub.id, cycleNumber },
           decision.retryDelayMs,
+          `retry-${decision.attempt}`,
         );
         await this.emitWebhook(sub, savedTx, 'subscription.payment_retrying');
       } else {
@@ -201,6 +230,39 @@ export class SubscriptionBillingProcessor {
       // Never throw — a failed charge is a normal outcome; retries are scheduled
       // explicitly above rather than through Bull's blind job-level retry.
     }
+  }
+
+  /**
+   * A renewal that cannot succeed by retrying: record one failed charge with
+   * the reason, mark the sub past_due and flag recurring as unavailable (so the
+   * admin and the app see why), and tell the app. No dunning, no next cycle —
+   * it starts again once the customer gives a new payment method.
+   */
+  private async failWithoutRetry(sub: Subscription, cycleNumber: number, reason: string, detail: string): Promise<void> {
+    this.logger.warn(`Sub ${sub.id} cycle ${cycleNumber} not charged — ${detail}`);
+    const tx = await this.transactions.save(this.transactions.create({
+      appId: sub.appId,
+      customerId: sub.customerId,
+      subscriptionId: sub.id,
+      provider: Provider.Xendit,
+      providerTxId: null,
+      type: TransactionType.SubscriptionPayment,
+      status: TransactionStatus.Failed,
+      amount: sub.plan?.amount ?? 0,
+      currency: sub.plan?.currency ?? 'PHP',
+      description: `${sub.plan?.name ?? 'Plan'} — cycle ${cycleNumber} not charged (${detail})`,
+      providerCompletedAt: null,
+      webhookReceivedAt: new Date(),
+    }));
+    sub.status = SubscriptionStatus.PastDue;
+    sub.metadata = {
+      ...(sub.metadata ?? {}),
+      recurringUnavailable: true,
+      recurringUnavailableReason: reason,
+      recurringUnavailableDetail: detail,
+    };
+    await this.subs.save(sub);
+    await this.emitWebhook(sub, tx, 'subscription.payment_failed');
   }
 
   private async emitWebhook(sub: Subscription, tx: Transaction, event: string): Promise<void> {

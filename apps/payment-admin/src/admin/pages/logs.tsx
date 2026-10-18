@@ -9,20 +9,23 @@ import { TransactionLog } from '../api/types';
 import { PageShell } from '../layout';
 import { Button, Card, FilterSelect, Icon, AppAvatar } from '../primitives';
 import { Navigate, RoutePage } from '../types';
+import { scopeCrumbs, useAppScope } from '../app-scope';
+import { ChangeHistory } from './marketplace';
 
 const PAGE_SIZE = 50;
 
 export function ActivityLogsPage({ onNavigate }: { onNavigate: Navigate }) {
+  const scope = useAppScope();
   const [appFilter, setAppFilter] = React.useState('All');
   const [actionFilter, setActionFilter] = React.useState('All');
   const [actorFilter, setActorFilter] = React.useState('All');
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
 
-  const apps = useFetch(() => api.apps.list(), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
   const query: api.LogsListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
     actor: actorFilter !== 'All' ? actorFilter.toLowerCase() : undefined,
     actionPrefix: actionFilter !== 'All' ? actionFilter.replace('.*', '.') : undefined,
     search: search || undefined,
@@ -34,7 +37,8 @@ export function ActivityLogsPage({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <PageShell
       title="Activity Logs"
-      breadcrumbs={[{ label: 'Observability' }, { label: 'Activity Logs' }]}
+      subtitle={scope ? 'Everything that happened to this app’s payments, plus changes to its settings.' : undefined}
+      breadcrumbs={scope ? scopeCrumbs(scope, 'Activity logs') : [{ label: 'Observability' }, { label: 'Activity Logs' }]}
       search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search action, transaction code…', width: 280 }}
       actions={
         <>
@@ -46,7 +50,7 @@ export function ActivityLogsPage({ onNavigate }: { onNavigate: Navigate }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App"         value={appFilter}    onChange={(v) => { setAppFilter(v); setPage(1); }}    options={appOptions} />
+        {!scope && <FilterSelect label="App"         value={appFilter}    onChange={(v) => { setAppFilter(v); setPage(1); }}    options={appOptions} />}
         <FilterSelect label="Action type" value={actionFilter} onChange={(v) => { setActionFilter(v); setPage(1); }} options={['All', 'payment.*', 'subscription.*', 'refund.*', 'webhook.*']} />
         <FilterSelect label="Actor"       value={actorFilter}  onChange={(v) => { setActorFilter(v); setPage(1); }}  options={['All', 'App', 'System', 'Provider', 'Admin']} />
         <div style={{ flex: 1 }} />
@@ -87,6 +91,14 @@ export function ActivityLogsPage({ onNavigate }: { onNavigate: Navigate }) {
           </>
         )}
       </Card>
+
+      {scope && (
+        <ChangeHistory
+          apps={[{ appId: scope.app.id, appName: scope.app.name }]}
+          refreshKey={0}
+          fixedAppId={scope.app.id}
+        />
+      )}
     </PageShell>
   );
 }
@@ -145,7 +157,7 @@ function ActivityLogRow({ row, onTxClick }: { row: TransactionLog; onTxClick: ()
         onClick={onTxClick}
         style={{
           background: 'none', border: 'none', padding: 0, fontSize: 11.5,
-          color: 'var(--accent)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
+          color: 'var(--accent-text)', textAlign: 'left', cursor: 'pointer', fontWeight: 500,
         }}
       >{row.transaction?.code ?? '—'}</button>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-2)' }}>

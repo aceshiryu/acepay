@@ -17,6 +17,8 @@ import { WebhookEventsAdminModule } from '../modules/webhook-events/webhook-even
 import { ActivityLogsAdminModule } from '../modules/activity-logs/activity-logs-admin.module';
 import { NotificationsModule } from '../modules/notifications/notifications.module';
 import { SettingsAdminModule } from '../modules/settings/settings-admin.module';
+import { IntegrationsAdminModule } from '../modules/integrations/integrations-admin.module';
+import { PaymongoPayModule } from '../modules/paymongo-pay/paymongo-pay.module';
 import { PaymentsAppModule } from '../modules/payments/payments-app.module';
 import { CustomersAppModule } from '../modules/customers/customers-app.module';
 import { PlansModule } from '../modules/plans/plans.module';
@@ -75,6 +77,8 @@ import { MarketplaceModule } from '../modules/marketplace/marketplace.module';
     ActivityLogsAdminModule,
     NotificationsModule,
     SettingsAdminModule,
+    IntegrationsAdminModule,
+    PaymongoPayModule,
     LemonsqueezyModule,
     // app-facing
     PaymentsAppModule,

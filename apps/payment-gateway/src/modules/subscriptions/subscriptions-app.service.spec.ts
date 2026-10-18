@@ -68,7 +68,7 @@ describe('SubscriptionsAppService (/v1/subscriptions)', () => {
   let subscriptions: {
     findOne: jest.Mock; create: jest.Mock; save: jest.Mock; createQueryBuilder: jest.Mock;
   };
-  let customers: { findOne: jest.Mock };
+  let customers: { findOne: jest.Mock; save: jest.Mock };
   let qb: Record<string, jest.Mock>;
   let plans: { findActiveForApp: jest.Mock };
   let adapter: Record<string, jest.Mock>;
@@ -93,7 +93,7 @@ describe('SubscriptionsAppService (/v1/subscriptions)', () => {
       save: jest.fn((s) => Promise.resolve(s)),
       createQueryBuilder: jest.fn(() => qb),
     };
-    customers = { findOne: jest.fn().mockResolvedValue(customer()) };
+    customers = { findOne: jest.fn().mockResolvedValue(customer()), save: jest.fn((c) => Promise.resolve(c)) };
     plans = { findActiveForApp: jest.fn().mockResolvedValue(plan()) };
     adapter = {
       createSubscription: jest.fn().mockResolvedValue({
@@ -206,6 +206,28 @@ describe('SubscriptionsAppService (/v1/subscriptions)', () => {
         await service.create(CALLER, { ...DTO, idempotencyKey: 'retry-1' });
         expect(plans.findActiveForApp).not.toHaveBeenCalled();
         expect(customersApp.upsert).not.toHaveBeenCalled();
+      });
+    });
+
+    // Xendit renewals charge on the Xendit customer the first invoice was made
+    // under; without it every Xendit subscription went past_due at cycle 2.
+    describe('provider customer', () => {
+      it('saves the Xendit customer id on the AcePay customer', async () => {
+        plans.findActiveForApp.mockResolvedValue(plan({ provider: Provider.Xendit }));
+        adapter.createSubscription.mockResolvedValue({
+          providerCheckoutId: 'inv-1', checkoutUrl: 'https://pay/inv-1', providerCustomerId: 'xcus-9',
+        });
+        await service.create(CALLER, DTO);
+        expect(customers.save).toHaveBeenCalledWith(expect.objectContaining({ xenditCustomerId: 'xcus-9' }));
+      });
+
+      it('leaves the customer alone for other providers', async () => {
+        plans.findActiveForApp.mockResolvedValue(plan({ provider: Provider.Paymongo }));
+        adapter.createSubscription.mockResolvedValue({
+          providerCheckoutId: 'chk-1', checkoutUrl: 'https://pay/chk-1', providerCustomerId: 'cus_pm',
+        });
+        await service.create(CALLER, DTO);
+        expect(customers.save).not.toHaveBeenCalled();
       });
     });
 

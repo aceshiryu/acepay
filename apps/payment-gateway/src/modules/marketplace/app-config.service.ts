@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Paged, toPaged } from '../../common/dto/pagination.dto';
 import { App, AppConfigChange } from '../../database/entities';
+import { ProviderCredentialsService } from '../../payment-providers/provider-credentials.service';
 import { ListConfigChangesDto, UpdateAppConfigDto } from './dto/merchant.dto';
 
 export interface AppConfigView {
@@ -42,6 +43,7 @@ export class AppConfigService {
   constructor(
     @InjectRepository(App) private readonly apps: Repository<App>,
     @InjectRepository(AppConfigChange) private readonly changes: Repository<AppConfigChange>,
+    private readonly credentials: ProviderCredentialsService,
   ) {}
 
   view(app: App): AppConfigView {
@@ -50,7 +52,7 @@ export class AppConfigService {
       name: app.name,
       slug: app.slug,
       // Test or live: whether money through this AcePay is real.
-      mode: xenditMode(process.env['XENDIT_SECRET_KEY']),
+      mode: xenditMode(this.credentials.get<string>('XENDIT_SECRET_KEY')),
       paymentMethods: app.paymentMethods ?? null,
       marketplace: {
         enabled: app.marketplaceEnabled,

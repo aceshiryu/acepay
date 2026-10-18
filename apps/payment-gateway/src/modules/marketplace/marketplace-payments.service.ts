@@ -54,11 +54,18 @@ export class MarketplacePaymentsService {
 
   async create(app: App, dto: CreateMarketplacePaymentDto): Promise<MarketplacePaymentView> {
     this.merchants.requireMarketplace(app);
+    const merchantId = dto.merchantId;
+    if (!merchantId) {
+      throw new BadRequestException({
+        error: 'merchant_required',
+        message: 'Marketplace payments need a merchantId — the merchant this payment is collected for',
+      });
+    }
 
     const existing = await this.findExisting(app, dto);
     if (existing && !isRetryable(existing)) return toView(existing);
 
-    const merchant = await this.merchants.findOwned(app, dto.merchantId);
+    const merchant = await this.merchants.findOwned(app, merchantId);
     if (merchant.status !== MerchantStatus.Active || !merchant.xenditAccountId) {
       throw new BadRequestException({
         error: 'merchant_not_active',

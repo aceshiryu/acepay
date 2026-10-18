@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import axios, { AxiosError } from 'axios';
 import { Xendit } from 'xendit-node';
 import { PayoutStatus } from '../common/enums';
+import { ProviderCredentialsService } from './provider-credentials.service';
 
 const XENDIT_API = 'https://api.xendit.co';
 
@@ -59,8 +59,9 @@ export interface XenditPayoutChannel {
 export class XenditPlatformClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _sdk: any | null = null;
+  private _sdkKey: string | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ProviderCredentialsService) {}
 
   private secretKey(): string {
     const key = this.config.get<string>('XENDIT_SECRET_KEY');
@@ -70,7 +71,12 @@ export class XenditPlatformClient {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sdk(): any {
-    if (!this._sdk) this._sdk = new Xendit({ secretKey: this.secretKey() });
+    // Rebuilt when the key changes (saved from the admin Integrations page).
+    const key = this.secretKey();
+    if (!this._sdk || this._sdkKey !== key) {
+      this._sdk = new Xendit({ secretKey: key });
+      this._sdkKey = key;
+    }
     return this._sdk;
   }
 

@@ -16,6 +16,7 @@ import {
   CodeBlock, CollapsibleCard, DetailMicro, MiniStatCard, Modal, MovementTimeline,
 } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, scopedProvider, useAppScope } from '../app-scope';
 
 type TxFilters = {
   search: string; appId: string; provider: string;
@@ -24,22 +25,42 @@ type TxFilters = {
 };
 
 const PAGE_SIZE = 20;
+
+const VIEW_SUBTITLE: Record<TxView, string> = {
+  payments: 'Every charge for this app, including subscription payments and refunds.',
+  refunds: 'Money returned to customers of this app.',
+  invoices: 'Each billing cycle PayMongo charged for this app’s subscriptions.',
+};
 const EMPTY: TxFilters = {
   search: '', appId: 'All', provider: 'All', type: 'All', status: 'All', source: 'All', page: 1,
 };
 
-export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Navigate; filterApp?: string | null }) {
+/** Which slice of an app's transactions a scoped page shows. */
+export type TxView = 'payments' | 'refunds' | 'invoices';
+
+const VIEW_TYPE: Record<TxView, string | undefined> = {
+  payments: undefined, refunds: 'refund', invoices: 'subscription_payment',
+};
+
+export function TransactionsPage({ onNavigate, filterApp, view = 'payments' }: {
+  onNavigate: Navigate;
+  filterApp?: string | null;
+  /** Inside an app: which slice to show (the type filter is pinned for refunds/invoices). */
+  view?: TxView;
+}) {
+  const scope = useAppScope();
   const [f, setF] = React.useState<TxFilters>({ ...EMPTY, appId: filterApp || 'All' });
   const set = <K extends keyof TxFilters>(k: K, v: TxFilters[K]) =>
     setF((prev) => ({ ...prev, [k]: v, page: k === 'page' ? (v as number) : 1 }));
 
-  const apps = useFetch(() => api.apps.list(), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
+  const pinnedType = scope ? VIEW_TYPE[view] : undefined;
   const query: api.TxListQuery = {
     page: f.page, pageSize: PAGE_SIZE,
     search: f.search || undefined,
-    appId: f.appId !== 'All' ? f.appId : undefined,
-    provider: f.provider !== 'All' ? f.provider.toLowerCase() : undefined,
-    type: f.type !== 'All' ? f.type.toLowerCase().replace(' ', '_') : undefined,
+    appId: scope ? scope.app.id : f.appId !== 'All' ? f.appId : undefined,
+    provider: scope ? scopedProvider(scope) : f.provider !== 'All' ? f.provider.toLowerCase() : undefined,
+    type: pinnedType ?? (f.type !== 'All' ? f.type.toLowerCase().replace(' ', '_') : undefined),
     status: f.status !== 'All' ? f.status.toLowerCase().replace(' ', '_') : undefined,
     source: f.source !== 'All' ? f.source.toLowerCase() : undefined,
   };
@@ -47,11 +68,16 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
   const stats = useFetch(() => api.transactions.stats(query), [JSON.stringify(query)]);
 
   const appOptions = ['All', ...(apps.data?.data ?? []).map((a) => ({ value: a.id, label: a.name }))];
+  const title = !scope ? 'Transactions'
+    : view === 'refunds' ? 'Refunds'
+    : view === 'invoices' ? 'Invoices'
+    : scope.provider === 'lemonsqueezy' ? 'Orders' : 'Payments';
 
   return (
     <PageShell
-      title="Transactions"
-      breadcrumbs={[{ label: 'Operations' }, { label: 'Transactions' }]}
+      title={title}
+      subtitle={scope ? VIEW_SUBTITLE[view] : undefined}
+      breadcrumbs={scope ? scopeCrumbs(scope, title) : [{ label: 'Operations' }, { label: 'Transactions' }]}
       search={{
         value: f.search, onChange: (v) => set('search', v),
         placeholder: 'Search code (TXN-…), customer, email…', width: 280,
@@ -75,9 +101,9 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App"      value={f.appId}    onChange={(v) => set('appId', v)}    options={appOptions} />
-        <FilterSelect label="Provider" value={f.provider} onChange={(v) => set('provider', v)} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit']} />
-        <FilterSelect label="Type"     value={f.type}     onChange={(v) => set('type', v)}     options={['All', 'Payment', 'Refund', 'Subscription payment']} />
+        {!scope && <FilterSelect label="App"      value={f.appId}    onChange={(v) => set('appId', v)}    options={appOptions} />}
+        {!scope && <FilterSelect label="Provider" value={f.provider} onChange={(v) => set('provider', v)} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit', { value: 'paymongo', label: 'PayMongo' }]} />}
+        {!pinnedType && <FilterSelect label="Type"     value={f.type}     onChange={(v) => set('type', v)}     options={['All', 'Payment', 'Refund', 'Subscription payment']} />}
         <FilterSelect label="Status"   value={f.status}   onChange={(v) => set('status', v)}   options={['All', 'Pending', 'Succeeded', 'Failed', 'Refunded']} />
         <FilterSelect label="Source"   value={f.source}   onChange={(v) => set('source', v)}   options={['All', 'Web', 'Mobile']} />
         <div style={{ flex: 1 }} />
@@ -95,12 +121,12 @@ export function TransactionsPage({ onNavigate, filterApp }: { onNavigate: Naviga
           <>
             <Table<Transaction>
               columns={[
-                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
-                { key: 'app', label: 'App', render: (r) => (
+                { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)', fontWeight: 500 }}>{r.code}</span> },
+                ...(scope ? [] : [{ key: 'app', label: 'App', render: (r: Transaction) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
                   </span>
-                )},
+                )}]),
                 { key: 'customer', label: 'Customer', render: (r) => r.customer ? (
                   <div>
                     <div style={{ color: 'var(--ink)', fontWeight: 500 }}>{r.customer.name ?? r.customer.email}</div>
@@ -247,7 +273,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
               <KV k="Transaction" v={<span className="mono">{tx.code}</span>} />
               {tx.app && (
                 <KV k="App" v={
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent)' }}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer', color: 'var(--accent-text)' }}
                     onClick={() => onNavigate('app-detail', tx.app!.id)}>
                     <AppAvatar name={tx.app.name} size={16} />{tx.app.name}
                   </span>
@@ -260,7 +286,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
               )}
               {tx.subscription && (
                 <KV k="Subscription" v={
-                  <span style={{ cursor: 'pointer', color: 'var(--accent)' }}
+                  <span style={{ cursor: 'pointer', color: 'var(--accent-text)' }}
                     onClick={() => onNavigate('subscription-detail', tx.subscription!.id)}>
                     <span className="mono">{tx.subscription.code}</span>
                   </span>
@@ -268,7 +294,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
               )}
               {tx.providerTxId && <KV k="Provider TX" v={<span className="mono">{tx.providerTxId}</span>} mono />}
               {tx.checkoutUrl && <KV k="Checkout URL" v={
-                <a href={tx.checkoutUrl} target="_blank" rel="noreferrer" className="mono" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>open</a>
+                <a href={tx.checkoutUrl} target="_blank" rel="noreferrer" className="mono" style={{ color: 'var(--accent-text)', textDecoration: 'underline' }}>open</a>
               } />}
               <KV k="Provider Created" v={tx.providerCreatedAt ? formatDateTime(tx.providerCreatedAt) : '—'} />
               <KV k="Webhook Received" v={tx.webhookReceivedAt ? formatDateTime(tx.webhookReceivedAt) : '—'} />
@@ -326,7 +352,7 @@ export function TransactionDetailPage({ txId, onNavigate, onBack }: { txId: stri
               <Table
                 dense
                 columns={[
-                  { key: 'id', label: 'Event', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
+                  { key: 'id', label: 'Event', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)' }}>{r.code}</span> },
                   { key: 'eventType', label: 'Type', render: (r) => <span className="mono" style={{ color: 'var(--ink-2)' }}>{r.eventType}</span> },
                   { key: 'attempts', label: 'Attempts', align: 'center', render: (r) => <span className="mono">{r.attempts}/{r.maxAttempts}</span> },
                   { key: 'deliveryStatus', label: 'Delivery', render: (r) => <StatusBadge status={r.deliveryStatus} size="sm" /> },

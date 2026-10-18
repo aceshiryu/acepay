@@ -5,17 +5,20 @@ import * as api from '../api/client';
 import { formatAmountCompact, formatDateTime } from '../api/format';
 import { LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
-import { Plan, PlanRegion } from '../api/types';
+import { Plan, PlanRegion, Provider } from '../api/types';
 import { PageShell } from '../layout';
 import {
   AppAvatar, Button, Card, FilterSelect, Icon, ProviderTag, StatusBadge, Table,
 } from '../primitives';
 import { Field, Modal, inputStyle } from '../shared';
 import { Navigate } from '../types';
+import { VerifyPlanContents } from './apps';
+import { primaryProvider, scopeCrumbs, scopedProvider, useAppScope } from '../app-scope';
 
 const PAGE_SIZE = 20;
 
 export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
+  const scope = useAppScope();
   const [appFilter, setAppFilter] = React.useState('All');
   const [providerFilter, setProviderFilter] = React.useState('All');
   const [intervalFilter, setIntervalFilter] = React.useState('All');
@@ -23,12 +26,13 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
   const [page, setPage] = React.useState(1);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editTarget, setEditTarget] = React.useState<Plan | null>(null);
+  const [verifyTarget, setVerifyTarget] = React.useState<Plan | null>(null);
 
-  const apps = useFetch(() => api.apps.list(), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
   const query: api.PlanListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
-    provider: providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
+    provider: scope ? scopedProvider(scope) : providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
     interval: intervalFilter !== 'All' ? intervalFilter.toLowerCase() : undefined,
     isActive: activeFilter === 'All' ? undefined : activeFilter === 'Active',
   };
@@ -39,7 +43,7 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
   return (
     <PageShell
       title="Plans"
-      breadcrumbs={[{ label: 'Operations' }, { label: 'Plans' }]}
+      breadcrumbs={scope ? scopeCrumbs(scope, 'Plans') : [{ label: 'Operations' }, { label: 'Plans' }]}
       actions={
         <Button variant="primary" size="md" leading={<Icon name="plus" size={12} strokeWidth={2.4} />}
           onClick={() => setCreateOpen(true)}>
@@ -49,8 +53,8 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />
-        <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit']} />
+        {!scope && <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />}
+        {!scope && <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit', { value: 'paymongo', label: 'PayMongo' }]} />}
         <FilterSelect label="Interval" value={intervalFilter} onChange={(v) => { setIntervalFilter(v); setPage(1); }} options={['All', 'Weekly', 'Monthly', 'Yearly']} />
         <FilterSelect label="Status"   value={activeFilter}   onChange={(v) => { setActiveFilter(v); setPage(1); }}   options={['All', 'Active', 'Inactive']} />
         <div style={{ flex: 1 }} />
@@ -94,11 +98,17 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
                   <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{formatDateTime(r.createdAt)}</span>
                 )},
                 { key: 'edit', label: '', align: 'right', render: (r) => (
-                  <Button variant="ghost" size="sm" onClick={() => setEditTarget(r)}>Edit</Button>
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    <Button variant="ghost" size="sm" onClick={() => setEditTarget(r)}>Edit</Button>
+                    {r.provider === 'lemonsqueezy' && (
+                      <Button variant="ghost" size="sm" onClick={() => setVerifyTarget(r)}>Verify</Button>
+                    )}
+                  </span>
                 )},
               ]}
               rows={list.data.data}
               getRowKey={(r) => r.id}
+              hide={scope ? ['app'] : undefined}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
           </>
@@ -108,7 +118,10 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
       {createOpen && (
         <Modal title="Add a subscription plan" onClose={() => setCreateOpen(false)} width={600}>
           <RegisterPlanForm
-            apps={(apps.data?.data ?? []).map((a) => ({ id: a.id, name: a.name, billingMode: a.billingMode }))}
+            apps={scope
+              ? [{ id: scope.app.id, name: scope.app.name, billingMode: scope.app.billingMode }]
+              : (apps.data?.data ?? []).map((a) => ({ id: a.id, name: a.name, billingMode: a.billingMode }))}
+            lockProvider={scope ? (scope.provider ?? primaryProvider(scope.app) ?? undefined) : undefined}
             onClose={() => setCreateOpen(false)}
             onCreated={() => { setCreateOpen(false); list.refetch(); }}
             onNavigate={onNavigate}
@@ -125,12 +138,24 @@ export function PlansPage({ onNavigate }: { onNavigate: Navigate }) {
           />
         </Modal>
       )}
+
+      {verifyTarget && (
+        <Modal title={`Verify "${verifyTarget.name}"`} onClose={() => setVerifyTarget(null)} width={540}>
+          <VerifyPlanContents
+            plan={verifyTarget}
+            onClose={() => setVerifyTarget(null)}
+            onSynced={() => { setVerifyTarget(null); list.refetch(); }}
+          />
+        </Modal>
+      )}
     </PageShell>
   );
 }
 
-export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
+export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate, lockProvider }: {
   apps: { id: string; name: string; billingMode?: string }[];
+  /** Inside an app: plans must use the app's provider, so the select is hidden. */
+  lockProvider?: Provider;
   onClose: () => void;
   onCreated: () => void;
   onNavigate: Navigate;
@@ -141,9 +166,11 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
   const eligibleApps = apps;
 
   const [appId, setAppId] = React.useState(eligibleApps[0]?.id ?? '');
-  const [provider, setProvider] = React.useState<'lemonsqueezy' | 'xendit'>('lemonsqueezy');
+  const [provider, setProvider] = React.useState<Provider>(lockProvider ?? 'lemonsqueezy');
+  // PayMongo: optionally link a plan already made in PayMongo instead of creating one.
+  const [paymongoPlanId, setPaymongoPlanId] = React.useState('');
   const [name, setName] = React.useState('');
-  const [region, setRegion] = React.useState<PlanRegion>('international');
+  const [region, setRegion] = React.useState<PlanRegion>(lockProvider && lockProvider !== 'lemonsqueezy' ? 'local' : 'international');
   const [description, setDescription] = React.useState('');
   // Lemon Squeezy:
   const [variantId, setVariantId] = React.useState('');
@@ -194,9 +221,29 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
     if (provider === 'xendit' && (!amount || Number(amount) <= 0)) {
       setError('Amount is required for Xendit plans.'); return;
     }
+    const linkingPaymongo = provider === 'paymongo' && paymongoPlanId.trim() !== '';
+    if (provider === 'paymongo' && !linkingPaymongo && (!amount || Number(amount) < 1)) {
+      setError('PayMongo plans need an amount of at least ₱1.00 (or the id of a plan you already made in PayMongo).'); return;
+    }
     setSubmitting(true);
     try {
-      const body = provider === 'lemonsqueezy'
+      const body = provider === 'paymongo'
+        ? {
+            appId,
+            name: name.trim(),
+            slug: autoSlug,
+            // When linking an existing PayMongo plan these are placeholders —
+            // the gateway replaces them with the PayMongo plan's own values.
+            amount: linkingPaymongo ? 100 : Math.round(Number(amount) * 100),
+            currency: 'PHP',
+            interval,
+            intervalCount: 1,
+            provider: 'paymongo',
+            providerPlanId: linkingPaymongo ? paymongoPlanId.trim() : undefined,
+            description: description.trim() || undefined,
+            region,
+          }
+        : provider === 'lemonsqueezy'
         ? {
             appId,
             name: name.trim(),
@@ -271,26 +318,29 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      {!(lockProvider && eligibleApps.length === 1) && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="App" hint="Which app this plan belongs to">
           <select value={appId} onChange={(e) => setAppId(e.target.value)} style={{ ...inputStyle, paddingRight: 24 }}>
             {eligibleApps.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </Field>
-        <Field label="Provider" hint="LS = international · Xendit = PH-local">
+        <Field label="Provider" hint="LS = international · Xendit / PayMongo = PH-local">
           <select
             value={provider}
             onChange={(e) => {
-              setProvider(e.target.value as 'lemonsqueezy' | 'xendit');
+              const next = e.target.value as Provider;
+              setProvider(next);
               setVerified(null); setVerifyError(null);
+              if (next === 'paymongo') { setCurrency('PHP'); setRegion('local'); }
             }}
             style={{ ...inputStyle, paddingRight: 24 }}
           >
             <option value="lemonsqueezy">Lemon Squeezy</option>
             <option value="xendit">Xendit</option>
+            <option value="paymongo">PayMongo</option>
           </select>
         </Field>
-      </div>
+      </div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 12 }}>
         <Field label="Title" hint="Operator-facing plan name">
@@ -397,6 +447,54 @@ export function RegisterPlanForm({ apps, onClose, onCreated, onNavigate }: {
         </>
       )}
 
+      {provider === 'paymongo' && (
+        <>
+          <Field label="Existing PayMongo plan ID" hint="Optional — leave blank and AcePay creates the plan in PayMongo for you">
+            <input
+              value={paymongoPlanId}
+              onChange={(e) => setPaymongoPlanId(e.target.value)}
+              placeholder="plan_…"
+              className="mono"
+              style={inputStyle}
+            />
+          </Field>
+          {!paymongoPlanId.trim() && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Field label="Amount (PHP)" hint="Major units, at least 1.00">
+                <input
+                  value={amount} onChange={(e) => setAmount(e.target.value)}
+                  type="number" step="0.01" min="1"
+                  placeholder="299.00"
+                  className="mono"
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Interval">
+                <select
+                  value={interval}
+                  onChange={(e) => setInterval(e.target.value as 'weekly' | 'monthly' | 'yearly')}
+                  style={{ ...inputStyle, paddingRight: 24 }}
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </Field>
+            </div>
+          )}
+          <div style={{
+            padding: '10px 12px',
+            background: 'var(--paymongo-bg)', border: '1px solid var(--paymongo-ink)',
+            borderRadius: 6, fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55,
+          }}>
+            <strong>PayMongo:</strong> PayMongo bills every cycle itself. The customer pays the first
+            invoice on an AcePay pay page (card or Maya) within 24 hours, which also saves the payment
+            method. Price and interval can&apos;t be changed later — a new price means a new plan.
+            PayMongo subscriptions can&apos;t be paused, and cancelling ends them immediately.
+          </div>
+        </>
+      )}
+
       {error && <div style={{ color: 'var(--bad)', fontSize: 12 }}>{error}</div>}
 
       <div style={{
@@ -416,6 +514,9 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const isLs = plan.provider === 'lemonsqueezy';
+  const isPaymongo = plan.provider === 'paymongo';
+  // Both bill from a plan on the provider's side, so AcePay's copy is read-only.
+  const priceLocked = isLs || isPaymongo;
   const [name, setName] = React.useState(plan.name);
   const [description, setDescription] = React.useState(plan.description ?? '');
   const [region, setRegion] = React.useState<PlanRegion>(plan.region);
@@ -431,7 +532,7 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
   const submit = async () => {
     setError(null);
     if (!name.trim()) { setError('Plan title is required.'); return; }
-    if (!isLs) {
+    if (!priceLocked) {
       const n = Number(amount);
       if (!n || n <= 0) { setError('Amount must be greater than 0.'); return; }
     }
@@ -443,7 +544,7 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
         region,
         isActive,
       };
-      if (!isLs) {
+      if (!priceLocked) {
         body.amount = Math.round(Number(amount) * 100);
         body.currency = currency.toUpperCase();
         body.interval = interval;
@@ -498,6 +599,18 @@ export function EditPlanForm({ plan, onClose, onSaved }: {
           <span className="mono" style={{ marginLeft: 4, fontWeight: 600 }}>
             {(plan.amount / 100).toFixed(2)} {plan.currency} / {plan.interval}
           </span>. Edit the variant in LS, then use <strong>Verify</strong> to pull the new values.
+        </div>
+      ) : isPaymongo ? (
+        <div style={{
+          padding: '10px 12px',
+          background: 'var(--paymongo-bg)', border: '1px solid var(--paymongo-ink)',
+          borderRadius: 6, fontSize: 11.5, color: 'var(--ink-2)', lineHeight: 1.55,
+        }}>
+          <strong>PayMongo:</strong> price and interval are fixed by the PayMongo plan
+          (<span className="mono">{plan.providerPlanId}</span>):
+          <span className="mono" style={{ marginLeft: 4, fontWeight: 600 }}>
+            {(plan.amount / 100).toFixed(2)} {plan.currency} / {plan.interval}
+          </span>. To change the price, add a new plan.
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 1fr 90px', gap: 10 }}>

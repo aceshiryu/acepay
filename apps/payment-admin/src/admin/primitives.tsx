@@ -52,6 +52,8 @@ export function ProviderTag({ name, size = 'md' }: { name: string; size?: 'sm' |
     ? { bg: 'var(--lemon-bg)', fg: 'var(--lemon-ink)', label: 'Lemon Squeezy' }
     : p === 'xendit'
     ? { bg: 'var(--xendit-bg)', fg: 'var(--xendit-ink)', label: 'Xendit' }
+    : p === 'paymongo'
+    ? { bg: 'var(--paymongo-bg)', fg: 'var(--paymongo-ink)', label: 'PayMongo' }
     : { bg: 'var(--neutral-soft)', fg: 'var(--ink-2)', label: name };
   const pad = size === 'sm' ? '1px 8px' : '2px 9px';
   const fs = size === 'sm' ? 10.5 : 11;
@@ -129,7 +131,7 @@ export function Button({ children, variant = 'secondary', size = 'md', onClick, 
         padding: sz.padding, fontSize: variant === 'block' ? 12 : sz.fontSize, fontWeight: 600,
         background: v.bg, color: v.fg, border: `1px solid ${v.border}`,
         borderRadius: 10, transition: 'all 120ms', whiteSpace: 'nowrap',
-        boxShadow: variant === 'primary' ? '0 6px 16px -8px rgba(79,124,247,0.7)' : 'none',
+        boxShadow: variant === 'primary' ? '0 6px 16px -8px color-mix(in srgb, var(--accent) 70%, transparent)' : 'none',
         ...(variant === 'block' ? { width: '100%', textTransform: 'uppercase' as const, letterSpacing: 0.6 } : {}),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
@@ -342,13 +344,16 @@ export type Column<T> = {
   render?: (row: T) => ReactNode;
 };
 
-export function Table<T>({ columns, rows, onRowClick, getRowKey, dense = false }: {
+export function Table<T>({ columns: allColumns, rows, onRowClick, getRowKey, dense = false, hide }: {
   columns: Column<T>[];
+  /** Column keys to leave out (e.g. 'app' on a page already scoped to one app). */
+  hide?: string[];
   rows: T[];
   onRowClick?: (row: T) => void;
   getRowKey?: (row: T) => string | number;
   dense?: boolean;
 }) {
+  const columns = hide?.length ? allColumns.filter((c) => !hide.includes(c.key)) : allColumns;
   return (
     <div style={{ overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -561,7 +566,7 @@ export function GatewayCard({ color, icon, title, subtitle, badge, rows, action,
           {link && (
             <button
               onClick={(e) => { e.stopPropagation(); link.onClick(); }}
-              style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--accent)', fontWeight: 600, cursor: 'pointer' }}
+              style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: 'var(--accent-text)', fontWeight: 600, cursor: 'pointer' }}
             >{link.label}</button>
           )}
         </div>

@@ -36,4 +36,16 @@ export class WebhooksController {
     if (!raw) throw new BadRequestException({ error: 'no_raw_body', message: 'rawBody is required' });
     return this.webhooks.handle(Provider.Xendit, raw, token);
   }
+
+  @Post('paymongo')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'PayMongo webhook receiver. Verifies Paymongo-Signature (HMAC of t.body), normalizes, delivers.' })
+  async paymongo(
+    @Req() req: RawRequest,
+    @Headers('paymongo-signature') sig: string | undefined,
+  ) {
+    const raw = req.rawBody;
+    if (!raw) throw new BadRequestException({ error: 'no_raw_body', message: 'rawBody is required' });
+    return this.webhooks.handle(Provider.Paymongo, raw, sig);
+  }
 }

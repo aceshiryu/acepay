@@ -2,23 +2,26 @@
 
 import React from 'react';
 import * as api from '../api/client';
-import { formatAmountCompact, formatRelative, pickPrimary } from '../api/format';
+import { formatRelative } from '../api/format';
 import { LoadingBlock } from '../api/loading-states';
 import { useFetch } from '../api/use-fetch';
 import { AppView } from '../api/types';
 import { PageShell } from '../layout';
-import { Button, Card, Icon, KV, ProviderTag, StatusBadge, Table, AppAvatar, TypePill } from '../primitives';
-import { Field, MiniStatCard, Modal, StatCard, inputStyle } from '../shared';
+import { Button, Card, Icon, ProviderTag, StatusBadge, Table, AppAvatar } from '../primitives';
+import { Field, MiniStatCard, Modal, inputStyle } from '../shared';
 import { LookedUpVariant, Plan } from '../api/types';
-import { EditPlanForm, RegisterPlanForm } from './plans';
 import { useAuth } from '../auth/auth-context';
 import { Navigate } from '../types';
 import { AddAppTile, AppCard } from '../app-card';
-import { AppPaymentMethodsCard } from './app-payment-methods';
+import { notifyAppsChanged } from '../events';
 
 export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
   const apps = useFetch(() => api.apps.list(), []);
+  const archived = useFetch(() => api.apps.list({ archived: true }), []);
   const appList = apps.data?.data ?? [];
+  const archivedList = archived.data?.data ?? [];
+  const [tab, setTab] = React.useState<'apps' | 'archived'>('apps');
+  const reloadAll = () => { apps.refetch(); archived.refetch(); notifyAppsChanged(); };
   const [view, setView] = React.useState<'grid' | 'list'>('grid');
   React.useEffect(() => {
     try { if (localStorage.getItem('acepay.apps.view') === 'list') setView('list'); } catch { /* storage blocked */ }
@@ -47,12 +50,27 @@ export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
         <MiniStatCard label="With webhook URL" value={appList.filter((a) => a.webhookUrl).length} sub="receiving deliveries" />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '6px 0 14px' }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4 }}>My apps</h2>
-        <ViewToggle value={view} onChange={changeView} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, margin: '6px 0 14px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
+          <TabButton active={tab === 'apps'} onClick={() => setTab('apps')}>My apps</TabButton>
+          <TabButton active={tab === 'archived'} onClick={() => setTab('archived')}>
+            Archived{archivedList.length ? ` (${archivedList.length})` : ''}
+          </TabButton>
+        </div>
+        {tab === 'apps' && <ViewToggle value={view} onChange={changeView} />}
       </div>
 
-      {view === 'grid' && (
+      {tab === 'archived' && (
+        <ArchivedApps
+          loading={archived.loading}
+          error={archived.error?.message ?? null}
+          rows={archivedList}
+          onChanged={reloadAll}
+          onOpen={(id) => onNavigate('app-detail', id)}
+        />
+      )}
+
+      {tab === 'apps' && view === 'grid' && (
         <>
           {apps.loading && <LoadingBlock height={200} />}
           {apps.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
@@ -65,7 +83,7 @@ export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
         </>
       )}
 
-      {view === 'list' && (
+      {tab === 'apps' && view === 'list' && (
       <Card padding={0}>
         {apps.loading && <LoadingBlock height={140} />}
         {apps.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{apps.error.message}</div>}
@@ -105,351 +123,7 @@ export function AppsPage({ onNavigate }: { onNavigate: Navigate }) {
   );
 }
 
-// ─── App Detail ─────────────────────────────────────────────────────────────
-
-export function AppDetailPage({ appId, onNavigate, onBack }: { appId: string | null; onNavigate: Navigate; onBack: () => void }) {
-  const appQ = useFetch(() => api.apps.one(appId!), [appId]);
-  const summaryQ = useFetch(() => api.stats.app(appId!), [appId]);
-  const txQ = useFetch(() => api.transactions.list({ appId: appId!, pageSize: 5 }), [appId]);
-  const plansQ = useFetch(() => api.plans.list({ appId: appId!, pageSize: 20 }), [appId]);
-  const [verifyTarget, setVerifyTarget] = React.useState<Plan | null>(null);
-  const [editTarget, setEditTarget] = React.useState<Plan | null>(null);
-  const [addPlanOpen, setAddPlanOpen] = React.useState(false);
-  const [testOpen, setTestOpen] = React.useState(false);
-
-  const [deactivateOpen, setDeactivateOpen] = React.useState(false);
-  const [deleteOpen, setDeleteOpen] = React.useState(false);
-  const settingsAnchor = React.useRef<HTMLDivElement | null>(null);
-
-  if (appQ.loading || !appQ.data) {
-    return (
-      <PageShell title="App" breadcrumbs={[{ label: 'Apps', onClick: onBack }, { label: '…' }]}>
-        <LoadingBlock height={200} />
-      </PageShell>
-    );
-  }
-  if (appQ.error) {
-    return (
-      <PageShell title="App" breadcrumbs={[{ label: 'Apps', onClick: onBack }]}>
-        <div style={{ padding: 16, color: 'var(--bad)' }}>{appQ.error.message}</div>
-      </PageShell>
-    );
-  }
-  const app = appQ.data;
-  const isActive = app.isActive;
-
-  return (
-    <PageShell
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-          <AppAvatar name={app.name} size={28} />
-          {app.name}
-          <StatusBadge status={isActive ? 'active' : 'inactive'} />
-        </span>
-      }
-      breadcrumbs={[{ label: 'Apps', onClick: onBack }, { label: app.name }]}
-      actions={
-        <>
-          <Button
-            variant="secondary" size="md"
-            leading={<Icon name="apps" size={12} />}
-            onClick={() => onNavigate('integrate')}
-          >
-            Integration Guide
-          </Button>
-          <Button
-            variant="primary" size="md"
-            leading={<Icon name="play" size={12} />}
-            onClick={() => setTestOpen(true)}
-            disabled={!isActive}
-            title={isActive ? 'Create a sandbox subscription to test the full flow' : 'Activate the app first'}
-          >
-            Run test transaction
-          </Button>
-          <Button variant="secondary" size="md" onClick={() => setDeactivateOpen(true)}>
-            {isActive ? 'Deactivate' : 'Activate'}
-          </Button>
-          <Button
-            variant="secondary" size="md" leading={<Icon name="settings" size={12} />}
-            onClick={() => settingsAnchor.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          >
-            Settings
-          </Button>
-        </>
-      }
-    >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
-        <StatCard
-          label="Total Transactions"
-          value={summaryQ.data?.txCount ?? '…'}
-          sub="all-time" accent="var(--info)"
-          sparkData={[20, 30, 25, 40, 38, 50, 45, 60, 58, 70, 75, 80]}
-        />
-        <StatCard
-          label="Success Rate"
-          value={summaryQ.data?.successRate != null ? `${summaryQ.data.successRate}%` : '—'}
-          sub="last 30 days" accent="var(--ok)"
-          sparkData={[93, 94, 92, 95, 94, 96, 94, 95, 93, 94, 94.2]}
-        />
-        <StatCard
-          label="Total Volume"
-          value={(() => {
-            const r = summaryQ.data ? pickPrimary(summaryQ.data.revenue) : null;
-            return r ? formatAmountCompact(r.amount, r.currency) : '—';
-          })()}
-          sub="net of refunds" accent="#5851B0"
-          sparkData={[5000, 7000, 6000, 9000, 8500, 11000, 10000, 13000, 12500, 15000, 16000]}
-        />
-        <StatCard
-          label="Active Subscriptions"
-          value={summaryQ.data?.activeSubs ?? '…'}
-          sub="recurring" accent="var(--ok)"
-          sparkData={[280, 285, 290, 295, 298, 302, 305, 308, 310, 311, 312]}
-        />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
-        <Card title="Credentials" subtitle="API key prefix + webhook URL" padding={0}>
-          <div style={{ padding: '4px 16px 14px' }}>
-            <KV k="API key prefix" v={<span className="mono">{app.apiKeyPrefix}…</span>} />
-            <KV k="Webhook URL" v={app.webhookUrl
-              ? <span className="mono">{app.webhookUrl}</span>
-              : <span style={{ color: 'var(--muted)' }}>not set</span>} />
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <Button
-                variant="secondary" size="sm"
-                onClick={async () => {
-                  if (!confirm('Rotate the API key? The current one will be rejected immediately.')) return;
-                  const result = await api.apps.regenerateKey(app.id);
-                  alert(`New key (saved once):\n\n${result.apiKey}\n\nStore it now.`);
-                  appQ.refetch();
-                }}
-              >
-                Rotate API Key
-              </Button>
-              <Button
-                variant="secondary" size="sm"
-                onClick={async () => {
-                  if (!confirm('Rotate the webhook secret? Update your verifier with the new one.')) return;
-                  const result = await api.apps.regenerateWebhookSecret(app.id);
-                  alert(`New webhook secret (saved once):\n\n${result.webhookSecret}\n\nStore it now.`);
-                  appQ.refetch();
-                }}
-              >
-                Rotate Webhook Secret
-              </Button>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Input Requirements" subtitle="Metadata schema enforced on every payment" padding={0}>
-          <div style={{ padding: '12px 16px 14px' }}>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Required</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {app.requiredMetadata.map((k) => <MetaTag key={k} label={k} />)}
-                {app.requiredMetadata.length === 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>none</span>}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Optional</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {app.optionalMetadata.map((k) => <MetaTag key={k} label={k} optional />)}
-                {app.optionalMetadata.length === 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>none</span>}
-              </div>
-            </div>
-            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--hairline)' }}>
-              <KV k="Slug" v={<span className="mono">{app.slug}</span>} />
-              <KV k="Created" v={formatRelative(app.createdAt)} />
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <Card padding={0} style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--hairline)' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Subscription Plans</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-              {plansQ.data ? `${plansQ.data.total} plan${plansQ.data.total === 1 ? '' : 's'} for ${app.name}` : 'Loading…'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Button variant="primary" size="sm"
-              leading={<Icon name="plus" size={11} strokeWidth={2.4} />}
-              onClick={() => setAddPlanOpen(true)}>
-              Add plan
-            </Button>
-            <button onClick={() => onNavigate('plans')} style={{
-              background: 'none', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 550,
-              display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-            }}>Manage all <Icon name="arrow" size={11} strokeWidth={2} /></button>
-          </div>
-        </div>
-        {plansQ.loading && <LoadingBlock height={100} />}
-        {plansQ.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{plansQ.error.message}</div>}
-        {plansQ.data && plansQ.data.data.length === 0 && (
-          <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
-            No plans yet. <button onClick={() => onNavigate('plans')} style={{
-              background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline',
-            }}>Register a plan</button> to start accepting subscriptions.
-          </div>
-        )}
-        {plansQ.data && plansQ.data.data.length > 0 && (
-          <Table
-            dense
-            columns={[
-              { key: 'name', label: 'Plan', render: (r) => (
-                <div>
-                  <div style={{ fontWeight: 550 }}>{r.name}</div>
-                  <div className="mono" style={{ color: 'var(--muted)', fontSize: 11 }}>{r.slug}</div>
-                </div>
-              )},
-              { key: 'description', label: 'Description', render: (r) => (
-                <span style={{ color: 'var(--ink-2)', fontSize: 12 }}>{r.description ?? '—'}</span>
-              )},
-              { key: 'amount', label: 'Price', align: 'right', render: (r) => (
-                <span className="mono" style={{ fontWeight: 600 }}>
-                  {formatAmountCompact(r.amount, r.currency)}
-                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}> /{r.interval[0]}</span>
-                </span>
-              )},
-              { key: 'region', label: 'Region', render: (r) => (
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.region === 'local' ? 'Local (PH)' : 'International'}</span>
-              )},
-              { key: 'provider', label: 'Provider', render: (r) => <ProviderTag name={r.provider} size="sm" /> },
-              { key: 'providerPlanId', label: 'Plan ID', render: (r) => (
-                <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{r.providerPlanId}</span>
-              )},
-              { key: 'isActive', label: 'Status', render: (r) => <StatusBadge status={r.isActive ? 'active' : 'inactive'} size="sm" /> },
-              { key: 'actions', label: '', align: 'right', render: (r) => (
-                <span style={{ display: 'inline-flex', gap: 4 }}>
-                  <Button variant="ghost" size="sm" onClick={() => setEditTarget(r)}>Edit</Button>
-                  {r.provider === 'lemonsqueezy' && (
-                    <Button variant="ghost" size="sm" onClick={() => setVerifyTarget(r)}>Verify</Button>
-                  )}
-                </span>
-              )},
-            ]}
-            rows={plansQ.data.data}
-            getRowKey={(r) => r.id}
-          />
-        )}
-      </Card>
-
-      <Card padding={0} style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--hairline)' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Recent Transactions</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Last 5 for {app.name}</div>
-          </div>
-          <button onClick={() => onNavigate('transactions', null, app.id)} style={{
-            background: 'none', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 550,
-            display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-          }}>View all <Icon name="arrow" size={11} strokeWidth={2} /></button>
-        </div>
-        {txQ.loading && <LoadingBlock height={120} />}
-        {txQ.error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{txQ.error.message}</div>}
-        {txQ.data && (
-          <Table
-            dense
-            columns={[
-              { key: 'id', label: 'ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)' }}>{r.code}</span> },
-              { key: 'customer', label: 'Customer', render: (r) => r.customer?.email ?? '—' },
-              { key: 'type', label: 'Type', render: (r) => <TypePill type={r.type === 'subscription_payment' ? 'subscription' : r.type} /> },
-              { key: 'amount', label: 'Amount', align: 'right', render: (r) => <span className="mono" style={{ fontWeight: 600 }}>{formatAmountCompact(r.amount, r.currency)}</span> },
-              { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} size="sm" /> },
-              { key: 'created', label: 'Created', align: 'right', render: (r) => <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{formatRelative(r.createdAt)}</span> },
-            ]}
-            rows={txQ.data.data}
-            getRowKey={(r) => r.id}
-            onRowClick={(r) => onNavigate('transaction-detail', r.id)}
-          />
-        )}
-      </Card>
-
-      <AppPaymentMethodsCard app={app} onSaved={() => appQ.refetch()} />
-
-      <div ref={settingsAnchor} style={{ scrollMarginTop: 80 }}>
-        <AppSettingsCard app={app} onSaved={() => appQ.refetch()} onDelete={() => setDeleteOpen(true)} />
-      </div>
-
-      {deactivateOpen && (
-        <DeactivateAppModal
-          appName={app.name}
-          isActive={isActive}
-          onClose={() => setDeactivateOpen(false)}
-          onConfirm={async () => {
-            if (isActive) await api.apps.deactivate(app.id);
-            else await api.apps.activate(app.id);
-            setDeactivateOpen(false);
-            appQ.refetch();
-          }}
-        />
-      )}
-
-      {deleteOpen && (
-        <DeleteAppModal
-          appName={app.name}
-          onClose={() => setDeleteOpen(false)}
-          onConfirm={async () => {
-            // Backend has no hard-delete endpoint yet; deactivate as the closest action.
-            await api.apps.deactivate(app.id);
-            setDeleteOpen(false);
-            onBack();
-          }}
-        />
-      )}
-
-      {verifyTarget && (
-        <Modal title={`Verify "${verifyTarget.name}"`} onClose={() => setVerifyTarget(null)} width={540}>
-          <VerifyPlanContents
-            plan={verifyTarget}
-            onClose={() => setVerifyTarget(null)}
-            onSynced={() => { plansQ.refetch(); setVerifyTarget(null); }}
-          />
-        </Modal>
-      )}
-
-      {editTarget && (
-        <Modal title={`Edit "${editTarget.name}"`} onClose={() => setEditTarget(null)} width={560}>
-          <EditPlanForm
-            plan={editTarget}
-            onClose={() => setEditTarget(null)}
-            onSaved={() => { plansQ.refetch(); setEditTarget(null); }}
-          />
-        </Modal>
-      )}
-
-      {testOpen && (
-        <Modal title={`Run test transaction · ${app.name}`} onClose={() => setTestOpen(false)} width={560}>
-          <TestTransactionForm
-            appId={app.id}
-            plans={plansQ.data?.data.filter((p) => p.isActive) ?? []}
-            onClose={() => setTestOpen(false)}
-            onNavigate={onNavigate}
-          />
-        </Modal>
-      )}
-
-      {addPlanOpen && (
-        <Modal title={`Add plan to ${app.name}`} onClose={() => setAddPlanOpen(false)} width={560}>
-          <RegisterPlanForm
-            // Lock the app dropdown to this app only — operator can't pick a different one
-            // here. Use the standalone Plans page if they want cross-app management.
-            apps={[{ id: app.id, name: app.name, billingMode: app.billingMode }]}
-            onClose={() => setAddPlanOpen(false)}
-            onCreated={() => { setAddPlanOpen(false); plansQ.refetch(); }}
-            onNavigate={onNavigate}
-          />
-        </Modal>
-      )}
-    </PageShell>
-  );
-}
-
-function VerifyPlanContents({ plan, onClose, onSynced }: {
+export function VerifyPlanContents({ plan, onClose, onSynced }: {
   plan: Plan;
   onClose: () => void;
   onSynced: () => void;
@@ -584,7 +258,7 @@ function PlanFactRow({ label, value, highlight }: { label: string; value: string
   );
 }
 
-function TestTransactionForm({ appId, plans, onClose, onNavigate }: {
+export function TestTransactionForm({ appId, plans, onClose, onNavigate }: {
   appId: string;
   plans: Plan[];
   onClose: () => void;
@@ -732,7 +406,13 @@ function TestTransactionForm({ appId, plans, onClose, onNavigate }: {
   );
 }
 
-function AppSettingsCard({ app, onSaved, onDelete }: { app: AppView; onSaved: () => void; onDelete: () => void }) {
+export function AppSettingsCard({ app, onSaved, onArchive, onRestore, onDeletePermanently }: {
+  app: AppView;
+  onSaved: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDeletePermanently: () => void;
+}) {
   const [name, setName] = React.useState(app.name);
   const [webhookUrl, setWebhookUrl] = React.useState(app.webhookUrl ?? '');
   const [rateLimit, setRateLimit] = React.useState(String(app.rateLimit));
@@ -819,25 +499,32 @@ function AppSettingsCard({ app, onSaved, onDelete }: { app: AppView; onSaved: ()
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--bad)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
           Danger Zone
         </div>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          border: '1px solid var(--bad-soft)', borderRadius: 6, padding: '10px 12px',
-          background: '#FFFBFA',
-        }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>Delete this app</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-              Hard-delete is not yet implemented; this currently deactivates the app and rejects new requests.
-            </div>
-          </div>
-          <Button variant="danger" size="md" onClick={onDelete}>Delete app</Button>
-        </div>
+        {app.archivedAt ? (
+          <>
+            <DangerRow
+              title="Restore this app"
+              body="Brings it back into the sidebar and lists. It stays deactivated until you activate it."
+              action={<Button variant="secondary" size="md" onClick={onRestore}>Restore</Button>}
+            />
+            <DangerRow
+              title="Delete permanently"
+              body="Removes the app and all of its plans, customers, subscriptions, transactions, logs and webhook events. This cannot be undone."
+              action={<Button variant="danger" size="md" onClick={onDeletePermanently}>Delete permanently</Button>}
+            />
+          </>
+        ) : (
+          <DangerRow
+            title="Archive this app"
+            body="Hides it from the sidebar and every list, and its API key stops working. All history is kept, and you can restore it or delete it permanently later."
+            action={<Button variant="danger" size="md" onClick={onArchive}>Archive app</Button>}
+          />
+        )}
       </div>
     </Card>
   );
 }
 
-function DeactivateAppModal({ appName, isActive, onClose, onConfirm }: {
+export function DeactivateAppModal({ appName, isActive, onClose, onConfirm }: {
   appName: string; isActive: boolean; onClose: () => void; onConfirm: () => void;
 }) {
   const action = isActive ? 'Deactivate' : 'Activate';
@@ -859,35 +546,168 @@ function DeactivateAppModal({ appName, isActive, onClose, onConfirm }: {
   );
 }
 
-function DeleteAppModal({ appName, onClose, onConfirm }: {
-  appName: string; onClose: () => void; onConfirm: () => void;
+function DangerRow({ title, body, action }: { title: string; body: string; action: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+      border: '1px solid var(--bad-soft)', borderRadius: 6, padding: '10px 12px',
+      background: 'var(--surface)', marginTop: 8,
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>{body}</div>
+      </div>
+      <div style={{ flexShrink: 0 }}>{action}</div>
+    </div>
+  );
+}
+
+export function ArchiveAppModal({ appName, onClose, onConfirm }: {
+  appName: string; onClose: () => void; onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  return (
+    <Modal title={`Archive ${appName}?`} onClose={onClose}>
+      <div style={{ padding: '4px 0 14px', fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+        {appName} disappears from the sidebar, the Apps page and every app filter, and its API key is
+        rejected (403 app_inactive). Its payments, subscriptions and logs are kept. You can restore it, or
+        delete it permanently, from <strong>Apps → Archived</strong>.
+      </div>
+      {error && <div style={{ color: 'var(--bad)', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary" disabled={busy}
+          style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
+          onClick={async () => {
+            setBusy(true); setError(null);
+            try { await onConfirm(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not archive'); setBusy(false); }
+          }}
+        >{busy ? 'Archiving…' : `Archive ${appName}`}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Type-the-name confirmation. The server re-checks the name and refuses while
+ *  the app has live subscriptions or payouts in flight; its message is shown. */
+export function DeleteAppPermanentlyModal({ appName, onClose, onConfirm }: {
+  appName: string; onClose: () => void; onConfirm: (confirmName: string) => Promise<void>;
 }) {
   const [confirmText, setConfirmText] = React.useState('');
-  const canDelete = confirmText === appName;
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const canDelete = confirmText === appName && !busy;
   return (
-    <Modal title={`Delete ${appName}?`} onClose={onClose}>
+    <Modal title={`Permanently delete ${appName}?`} onClose={onClose}>
       <div style={{ padding: '4px 0 14px', fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-        Type <span className="mono" style={{ color: 'var(--bad)', fontWeight: 600 }}>{appName}</span> to confirm.
-        Hard-delete is not implemented yet — this will deactivate the app.
+        This removes {appName} and <strong>all</strong> of its plans, customers, subscriptions, transactions,
+        payouts, logs and webhook events. <strong>It cannot be undone.</strong> Nothing is changed at the
+        payment provider. Type <span className="mono" style={{ color: 'var(--bad)', fontWeight: 600 }}>{appName}</span> to confirm.
       </div>
       <input
         value={confirmText} onChange={(e) => setConfirmText(e.target.value)}
         autoFocus className="mono" style={inputStyle} placeholder={appName}
       />
+      {error && <div style={{ color: 'var(--bad)', fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>{error}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button
           variant="primary"
-          onClick={canDelete ? onConfirm : undefined}
+          disabled={!canDelete}
+          onClick={async () => {
+            setBusy(true); setError(null);
+            try { await onConfirm(confirmText); } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete'); setBusy(false); }
+          }}
           style={{
             background: canDelete ? 'var(--bad)' : 'var(--neutral-soft)',
             borderColor: canDelete ? 'var(--bad)' : 'var(--border)',
             color: canDelete ? '#fff' : 'var(--muted)',
             cursor: canDelete ? 'pointer' : 'not-allowed',
           }}
-        >Delete {appName}</Button>
+        >{busy ? 'Deleting…' : 'Delete permanently'}</Button>
       </div>
     </Modal>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        background: 'none', border: 'none', padding: '0 0 4px', cursor: 'pointer',
+        fontSize: active ? 22 : 15, fontWeight: 700, letterSpacing: active ? -0.4 : 0,
+        color: active ? 'var(--ink)' : 'var(--muted)',
+        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+      }}
+    >{children}</button>
+  );
+}
+
+/** Archived apps: hidden everywhere else. Restore brings one back (deactivated);
+ *  Delete permanently removes it and all its data. */
+function ArchivedApps({ loading, error, rows, onChanged, onOpen }: {
+  loading: boolean; error: string | null; rows: AppView[]; onChanged: () => void; onOpen: (id: string) => void;
+}) {
+  const [deleting, setDeleting] = React.useState<AppView | null>(null);
+  const [rowError, setRowError] = React.useState<string | null>(null);
+  return (
+    <Card padding={0}>
+      {loading && <LoadingBlock height={120} />}
+      {error && <div style={{ padding: 16, color: 'var(--bad)', fontSize: 12 }}>{error}</div>}
+      {!loading && !error && rows.length === 0 && (
+        <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
+          No archived apps. Archive one from its App settings → Danger Zone.
+        </div>
+      )}
+      {rowError && <div style={{ padding: '10px 16px', color: 'var(--bad)', fontSize: 12 }}>{rowError}</div>}
+      {rows.length > 0 && (
+        <Table<AppView>
+          columns={[
+            { key: 'name', label: 'App', render: (a) => (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                <AppAvatar name={a.name} size={22} />
+                <span>
+                  <div style={{ fontWeight: 550, color: 'var(--ink)' }}>{a.name}</div>
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{a.code}</div>
+                </span>
+              </span>
+            ) },
+            { key: 'providers', label: 'Provider', render: (a) => a.providers[0] ? <ProviderTag name={a.providers[0]} size="sm" /> : <span style={{ color: 'var(--muted)' }}>—</span> },
+            { key: 'archivedAt', label: 'Archived', render: (a) => (
+              <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{a.archivedAt ? formatRelative(a.archivedAt) : '—'}</span>
+            ) },
+            { key: 'actions', label: '', align: 'right', render: (a) => (
+              <span style={{ display: 'inline-flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                <Button variant="secondary" size="sm" onClick={async () => {
+                  setRowError(null);
+                  try { await api.apps.restore(a.id); onChanged(); }
+                  catch (err) { setRowError(err instanceof Error ? err.message : 'Could not restore'); }
+                }}>Restore</Button>
+                <Button variant="danger" size="sm" onClick={() => setDeleting(a)}>Delete permanently</Button>
+              </span>
+            ) },
+          ]}
+          rows={rows}
+          getRowKey={(r) => r.id}
+          onRowClick={(a) => onOpen(a.id)}
+        />
+      )}
+      {deleting && (
+        <DeleteAppPermanentlyModal
+          appName={deleting.name}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confirmName) => {
+            await api.apps.deletePermanently(deleting.id, confirmName);
+            setDeleting(null);
+            onChanged();
+          }}
+        />
+      )}
+    </Card>
   );
 }
 
@@ -966,7 +786,7 @@ function IntegrationBanner({ onNavigate }: { onNavigate: Navigate }) {
   );
 }
 
-function MetaTag({ label, optional }: { label: string; optional?: boolean }) {
+export function MetaTag({ label, optional }: { label: string; optional?: boolean }) {
   return (
     <span className="mono" style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,

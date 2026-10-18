@@ -42,8 +42,18 @@ export class InlinePlanDto {
   @Length(1, 200)
   variantId?: string;
 
-  // ── Xendit (AcePay-managed; no provider plan object) ─────────────────
-  @ApiPropertyOptional({ example: 29900, description: 'Required when provider=xendit. Amount in smallest unit (centavos).' })
+  // ── PayMongo ─────────────────────────────────────────────────────────
+  @ApiPropertyOptional({
+    example: 'plan_dQsAFCwcrfL7WTJL6Wcv769Q',
+    description: 'Optional for provider=paymongo: link a plan you already made in PayMongo (its price and interval are used). Omit it and AcePay creates the PayMongo plan from amount/currency/interval.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  paymongoPlanId?: string;
+
+  // ── Xendit (AcePay-managed; no provider plan object) + PayMongo ──────
+  @ApiPropertyOptional({ example: 29900, description: 'Required when provider=xendit (or paymongo without paymongoPlanId). Amount in smallest unit (centavos).' })
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -151,6 +161,15 @@ export class CreateAppDto {
   })
   @IsEnum(BillingMode)
   billingMode!: BillingMode;
+
+  @ApiPropertyOptional({
+    enum: Provider,
+    description: 'The provider this app is registered under. Not stored (an app\'s provider is derived ' +
+      'from its plans) — when given, at least one plan is required and every plan must use this provider.',
+  })
+  @IsOptional()
+  @IsEnum(Provider)
+  provider?: Provider;
 
   @ApiPropertyOptional({
     type: [InlinePlanDto],

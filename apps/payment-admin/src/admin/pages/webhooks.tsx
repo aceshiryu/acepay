@@ -10,22 +10,24 @@ import { PageShell, Tabs } from '../layout';
 import { Button, Card, FilterSelect, Icon, KV, ProviderTag, StatusBadge, Table, AppAvatar } from '../primitives';
 import { CodeBlock, DetailMicro, MiniStatCard } from '../shared';
 import { Navigate } from '../types';
+import { scopeCrumbs, scopedProvider, useAppScope } from '../app-scope';
 
 const PAGE_SIZE = 20;
 
 export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStatus?: string }) {
+  const scope = useAppScope();
   const [appFilter, setAppFilter] = React.useState('All');
   const [providerFilter, setProviderFilter] = React.useState('All');
   const [statusFilter, setStatusFilter] = React.useState('All');
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
 
-  const apps = useFetch(() => api.apps.list(), []);
-  const stats = useFetch(() => api.webhookEvents.stats(24), []);
+  const apps = useFetch(() => (scope ? Promise.resolve(null) : api.apps.list()), [!!scope]);
+  const stats = useFetch(() => api.webhookEvents.stats(24, scope?.app.id), [scope?.app.id]);
   const query: api.WebhookListQuery = {
     page, pageSize: PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
-    provider: providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
+    appId: scope ? scope.app.id : appFilter !== 'All' ? appFilter : undefined,
+    provider: scope ? scopedProvider(scope) : providerFilter !== 'All' ? providerFilter.toLowerCase() : undefined,
     deliveryStatus: statusFilter !== 'All' ? statusFilter.toLowerCase() : undefined,
     search: search || undefined,
   };
@@ -36,7 +38,8 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
   return (
     <PageShell
       title="Webhook Events"
-      breadcrumbs={[{ label: 'Operations' }, { label: 'Webhook Events' }]}
+      subtitle={scope ? 'Events the provider sent about this app, and whether AcePay delivered each one to the app.' : undefined}
+      breadcrumbs={scope ? scopeCrumbs(scope, 'Webhook events') : [{ label: 'Operations' }, { label: 'Webhook Events' }]}
       search={{ value: search, onChange: (v) => { setSearch(v); setPage(1); }, placeholder: 'Search event code, type, transaction…', width: 280 }}
     >
       <GuardedView
@@ -55,8 +58,8 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <Icon name="filter" size={13} color="var(--muted)" />
-        <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />
-        <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit']} />
+        {!scope && <FilterSelect label="App"      value={appFilter}      onChange={(v) => { setAppFilter(v); setPage(1); }}      options={appOptions} />}
+        {!scope && <FilterSelect label="Provider" value={providerFilter} onChange={(v) => { setProviderFilter(v); setPage(1); }} options={['All', { value: 'lemonsqueezy', label: 'Lemon Squeezy' }, 'Xendit', { value: 'paymongo', label: 'PayMongo' }]} />}
         <FilterSelect label="Delivery" value={statusFilter}   onChange={(v) => { setStatusFilter(v); setPage(1); }}   options={['All', 'Pending', 'Delivered', 'Failed', 'Exhausted']} />
         <div style={{ flex: 1 }} />
         {list.data && (
@@ -71,14 +74,14 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
           <>
             <Table<WebhookEvent>
               columns={[
-                { key: 'id', label: 'Event ID', render: (r) => <span className="mono" style={{ color: 'var(--accent)', fontWeight: 500 }}>{r.code}</span> },
+                { key: 'id', label: 'Event ID', render: (r) => <span className="mono" style={{ color: 'var(--accent-text)', fontWeight: 500 }}>{r.code}</span> },
                 { key: 'app', label: 'App', render: (r) => (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                     <AppAvatar name={r.app?.name ?? '?'} size={18} />{r.app?.name ?? '—'}
                   </span>
                 )},
                 { key: 'tx', label: 'Transaction', render: (r) => r.transactionId
-                  ? <span className="mono" style={{ color: 'var(--accent)' }}>{r.transaction?.code ?? '—'}</span>
+                  ? <span className="mono" style={{ color: 'var(--accent-text)' }}>{r.transaction?.code ?? '—'}</span>
                   : '—' },
                 { key: 'provider', label: 'Provider', render: (r) => <ProviderTag name={r.provider} size="sm" /> },
                 { key: 'type', label: 'Event Type', render: (r) => <span className="mono" style={{ color: 'var(--ink-2)' }}>{r.eventType}</span> },
@@ -91,6 +94,7 @@ export function WebhooksPage({ onNavigate }: { onNavigate: Navigate; initialStat
               ]}
               rows={list.data.data}
               getRowKey={(r) => r.id}
+              hide={scope ? ['app'] : undefined}
               onRowClick={(r) => onNavigate('webhook-detail', r.id)}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
@@ -176,7 +180,7 @@ export function WebhookDetailPage({ evtId, onNavigate, onBack }: { evtId: string
         <DetailMicro label="Event Type" value={<span className="mono" style={{ fontSize: 13 }}>{evt.eventType}</span>} />
         <DetailMicro label="App" value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><AppAvatar name={evt.app?.name ?? '?'} size={16} />{evt.app?.name ?? '—'}</span>} />
         <DetailMicro label="Transaction" value={evt.transactionId ?
-          <span className="mono" style={{ color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }} onClick={() => onNavigate('transaction-detail', evt.transactionId!)}>
+          <span className="mono" style={{ color: 'var(--accent-text)', cursor: 'pointer', fontSize: 12 }} onClick={() => onNavigate('transaction-detail', evt.transactionId!)}>
             {evt.transaction?.code ?? '—'}
           </span> : '—'} />
         <DetailMicro label="Provider" value={<ProviderTag name={evt.provider} size="sm" />} />

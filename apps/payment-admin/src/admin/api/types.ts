@@ -1,6 +1,6 @@
 // Mirrors gateway DTOs. Kept narrow — only fields the admin UI uses.
 
-export type Provider = 'lemonsqueezy' | 'xendit';
+export type Provider = 'lemonsqueezy' | 'xendit' | 'paymongo';
 export type BillingMode = 'subscription' | 'one_time';
 export type PlanRegion = 'local' | 'international';
 export type Source = 'web' | 'mobile';
@@ -45,12 +45,36 @@ export interface AppView {
   rateLimit: number;
   billingMode: BillingMode;
   isActive: boolean;
+  /** Set = archived: hidden from every list, API key rejected, restorable. */
+  archivedAt: string | null;
   /** Xendit codes the app's checkouts offer; null = every method on the Xendit account. */
   paymentMethods?: string[] | null;
   /** The last "Send test webhook". */
   lastPing?: { at: string; ok: boolean | null; detail: string | null } | null;
+  /** Derived from the app's plans (else its transactions). Usually one; empty = no plans yet. */
+  providers: Provider[];
+  apiKeyExpiresAt: string | null;
+  marketplaceEnabled: boolean;
+  marketplaceFeePercent: number | null;
+  /** Inner-sidebar items hidden for this app (App settings → Menu). */
+  hiddenMenus: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type AppHealth = 'live' | 'needs_attention' | 'not_ready' | 'inactive';
+export interface AppStatusCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  blocking: boolean;
+  detail: string | null;
+  /** Segment under /apps/<id>/ that fixes this check. */
+  fix: string | null;
+}
+export interface AppStatus {
+  status: AppHealth;
+  checks: AppStatusCheck[];
 }
 export interface AppRegistered {
   app: AppView;

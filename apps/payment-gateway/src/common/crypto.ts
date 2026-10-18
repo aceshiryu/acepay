@@ -56,6 +56,23 @@ function getEncryptionKey(): Buffer {
   return key;
 }
 
+/**
+ * Tamper-proof token for a public link that names one record, e.g. the
+ * PayMongo pay page `/v1/pay/paymongo/<subscriptionId>?t=<token>`. HMAC of
+ * `<purpose>:<id>` under the encryption key, so a link can't be forged for a
+ * guessed id and a token minted for one purpose can't be replayed for another.
+ */
+export function signLinkToken(purpose: string, id: string): string {
+  return createHmac('sha256', getEncryptionKey()).update(`${purpose}:${id}`).digest('base64url');
+}
+
+export function verifyLinkToken(purpose: string, id: string, token: string | undefined | null): boolean {
+  if (!token) return false;
+  const expected = Buffer.from(signLinkToken(purpose, id));
+  const given = Buffer.from(token);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
 export function encryptSecret(plaintext: string): string {
   const key = getEncryptionKey();
   const iv = randomBytes(IV_LEN);

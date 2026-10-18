@@ -1,8 +1,8 @@
 'use client';
 
-import { PayoutsPage } from '../../../admin/pages/payouts';
-import { useNavigate } from '../../../admin/navigate';
+import { RedirectTo } from '@/admin/redirects';
 
+/** Replaced by the per-app pages under /apps/<id>/. */
 export default function Page() {
-  return <PayoutsPage onNavigate={useNavigate()} />;
+  return <RedirectTo href="/dashboard" />;
 }

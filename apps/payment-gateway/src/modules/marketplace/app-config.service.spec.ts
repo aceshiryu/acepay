@@ -9,6 +9,7 @@ jest.mock('../../database/entities', () => ({
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { App, AppConfigChange } from '../../database/entities';
+import { ProviderCredentialsService } from '../../payment-providers/provider-credentials.service';
 import { AppConfigService } from './app-config.service';
 
 function bookly(o: Partial<App> = {}): App {
@@ -35,6 +36,8 @@ describe('AppConfigService (/v1/app/config)', () => {
     service = new AppConfigService(
       apps as unknown as Repository<App>,
       changes as unknown as Repository<AppConfigChange>,
+      // Saved credentials fall back to the env, which is what these tests drive.
+      { get: (k: string) => process.env[k] } as unknown as ProviderCredentialsService,
     );
   });
 

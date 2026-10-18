@@ -1,5 +1,5 @@
 import { createHmac } from 'crypto';
-import { ConfigService } from '@nestjs/config';
+import { ProviderCredentialsService } from './provider-credentials.service';
 import { SubscriptionStatus, TransactionStatus } from '../common/enums';
 
 // Mock the Lemon Squeezy SDK — the adapter imports named functions from it.
@@ -29,11 +29,11 @@ import {
   issueOrderRefund,
   updateSubscription,
 } from '@lemonsqueezy/lemonsqueezy.js';
-import { LemonsqueezyAdapter } from './lemonsqueezy.adapter';
+import { describeLemonError, isLemonTestMode, LemonsqueezyAdapter } from './lemonsqueezy.adapter';
 
 const WEBHOOK_SECRET = 'ls_whsec_test';
 
-function makeConfig(overrides: Record<string, string> = {}): ConfigService {
+function makeConfig(overrides: Record<string, string> = {}): ProviderCredentialsService {
   const env: Record<string, string> = {
     LEMONSQUEEZY_API_KEY: 'ls_key',
     LEMONSQUEEZY_STORE_ID: '111',
@@ -42,7 +42,7 @@ function makeConfig(overrides: Record<string, string> = {}): ConfigService {
     LEMONSQUEEZY_TEST_MODE: 'true',
     ...overrides,
   };
-  return { get: (k: string) => env[k] } as unknown as ConfigService;
+  return { get: (k: string) => env[k] } as unknown as ProviderCredentialsService;
 }
 
 function sign(body: Buffer, secret = WEBHOOK_SECRET): string {
@@ -165,6 +165,29 @@ describe('LemonsqueezyAdapter', () => {
     it('surfaces a provider error', async () => {
       (issueOrderRefund as jest.Mock).mockResolvedValue({ data: null, error: { message: 'boom' } });
       await expect(adapter.refund('9001', 100)).rejects.toThrow(/refund failed: boom/);
+    });
+
+    // LS converts via USD: a ₱499.00 plan charged ₱498.92, and LS refused a
+    // ₱499.00 refund ("cannot be more than PHP498.92") — seen in sandbox.
+    it('caps at what the order can still refund, and reports the real amount', async () => {
+      (getOrder as jest.Mock).mockResolvedValue({ data: { data: { attributes: { total: 49892, refunded_amount: 0 } } }, error: null });
+      (issueOrderRefund as jest.Mock).mockResolvedValue({ data: { data: { id: 'refund_2' } }, error: null });
+      const res = await adapter.refund('9787087', 49900);
+      expect(issueOrderRefund).toHaveBeenCalledWith('9787087', 49892);
+      expect(res.amount).toBe(49892);
+    });
+
+    it('leaves a partial refund untouched', async () => {
+      (getOrder as jest.Mock).mockResolvedValue({ data: { data: { attributes: { total: 49892, refunded_amount: 10000 } } }, error: null });
+      (issueOrderRefund as jest.Mock).mockResolvedValue({ data: { data: { id: 'refund_3' } }, error: null });
+      await adapter.refund('9787087', 5000);
+      expect(issueOrderRefund).toHaveBeenCalledWith('9787087', 5000);
+    });
+
+    it('refuses an order that is already fully refunded', async () => {
+      (getOrder as jest.Mock).mockResolvedValue({ data: { data: { attributes: { total: 49892, refunded_amount: 49892 } } }, error: null });
+      await expect(adapter.refund('9787087', 100)).rejects.toThrow(/already been fully refunded/);
+      expect(issueOrderRefund).not.toHaveBeenCalled();
     });
   });
 
@@ -914,6 +937,67 @@ describe('LemonsqueezyAdapter', () => {
     it('verifies an empty-object body', () => {
       const body = Buffer.from('{}');
       expect(adapter.verifyWebhook(body, sign(body))).toEqual({});
+    });
+  });
+
+  describe('checkConnection', () => {
+    it('reads the configured store and reports the sandbox', async () => {
+      (getStore as jest.Mock).mockResolvedValue({
+        data: { data: { attributes: { name: 'AcePay', currency: 'PHP' } } }, error: null,
+      });
+      await expect(adapter.checkConnection()).resolves.toEqual({
+        ok: true, mode: 'test', detail: 'Connected to store "AcePay" (PHP)',
+      });
+      expect(getStore).toHaveBeenCalledWith('111');
+    });
+
+    it('reports live only for the exact string "false"', async () => {
+      (getStore as jest.Mock).mockResolvedValue({ data: { data: { attributes: {} } }, error: null });
+      const live = new LemonsqueezyAdapter(makeConfig({ LEMONSQUEEZY_TEST_MODE: 'false' }));
+      await expect(live.checkConnection()).resolves.toMatchObject({ ok: true, mode: 'live' });
+    });
+
+    it('returns the provider error instead of throwing', async () => {
+      (getStore as jest.Mock).mockResolvedValue({ data: null, error: { message: 'Unauthenticated' } });
+      await expect(adapter.checkConnection()).resolves.toEqual({
+        ok: false, mode: 'test', detail: 'Lemon Squeezy rejected the request: Unauthenticated',
+      });
+    });
+
+    it('returns a missing API key as a failed check, without calling Lemon Squeezy', async () => {
+      const bare = new LemonsqueezyAdapter(makeConfig({ LEMONSQUEEZY_API_KEY: '' }));
+      await expect(bare.checkConnection()).resolves.toMatchObject({
+        ok: false, detail: expect.stringContaining('LEMONSQUEEZY_API_KEY'),
+      });
+      expect(getStore).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isLemonTestMode', () => {
+    it.each([
+      [undefined, true], ['true', true], ['', true], ['FALSE', true], [' false', true], ['false', false],
+    ])('%p → test mode %p', (value, expected) => {
+      expect(isLemonTestMode(value)).toBe(expected);
+    });
+  });
+
+  describe('describeLemonError', () => {
+    // The SDK sets `cause` to the JSON:API errors array itself.
+    it("adds Lemon Squeezy's own reason to the SDK's bare status text", () => {
+      expect(describeLemonError({
+        message: 'Unprocessable Entity',
+        cause: [{ detail: 'The amount field must be less than or equal to 49900.' }],
+      })).toBe('Unprocessable Entity — The amount field must be less than or equal to 49900.');
+    });
+
+    it('also reads a nested errors list or a string cause', () => {
+      expect(describeLemonError({ message: 'Bad Request', cause: { errors: [{ title: 'Invalid' }] } })).toBe('Bad Request — Invalid');
+      expect(describeLemonError({ message: 'Bad Request', cause: 'Order already refunded' })).toBe('Bad Request — Order already refunded');
+    });
+
+    it('falls back to the message, then to "unknown"', () => {
+      expect(describeLemonError({ message: 'Not Found' })).toBe('Not Found');
+      expect(describeLemonError(null)).toBe('unknown');
     });
   });
 });

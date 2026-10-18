@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import { ProviderCredentialsService } from './provider-credentials.service';
 import { PayoutStatus } from '../common/enums';
 
 const mockBalance = { getBalance: jest.fn() };
@@ -25,7 +25,7 @@ function makeClient(env: Record<string, string | undefined> = {}) {
     XENDIT_PLATFORM_ACCOUNT_ID: 'master-biz-1',
     ...env,
   };
-  return new XenditPlatformClient({ get: (k: string) => all[k] } as unknown as ConfigService);
+  return new XenditPlatformClient({ get: (k: string) => all[k] } as unknown as ProviderCredentialsService);
 }
 
 describe('XenditPlatformClient', () => {

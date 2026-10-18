@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { App } from '../../database/entities';
+import { ProviderCredentialsService } from '../../payment-providers/provider-credentials.service';
 
 /**
  * Says so at boot when an app takes marketplace payments but the platform
@@ -15,7 +15,7 @@ export class MarketplaceConfigCheck implements OnApplicationBootstrap {
   private readonly logger = new Logger(MarketplaceConfigCheck.name);
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly config: ProviderCredentialsService,
     @InjectRepository(App) private readonly apps: Repository<App>,
   ) {}
 

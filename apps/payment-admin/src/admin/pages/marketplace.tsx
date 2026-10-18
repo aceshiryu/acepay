@@ -28,7 +28,7 @@ export function minorToPesoInput(minor: number | null | undefined): string {
   return (minor / 100).toFixed(2).replace(/\.00$/, '');
 }
 
-interface RowDraft {
+export interface RowDraft {
   enabled: boolean;
   feePercent: string;
   minPayout: string; // pesos (major units)
@@ -36,7 +36,7 @@ interface RowDraft {
   feeMax: string;
 }
 
-function draftFrom(row: MarketplaceSettingsRow): RowDraft {
+export function draftFrom(row: MarketplaceSettingsRow): RowDraft {
   return {
     enabled: row.marketplaceEnabled,
     feePercent: row.feePercent == null ? '' : String(row.feePercent),
@@ -51,7 +51,7 @@ type ParsedDraft =
   | { error: string };
 
 /** Shared client-side checks for a settings row and the defaults card. */
-function parseDraft(d: RowDraft): ParsedDraft {
+export function parseDraft(d: RowDraft): ParsedDraft {
   const badPct = (n: number | null) => n != null && (!Number.isFinite(n) || n < 0 || n > 100);
   const fee = d.feePercent.trim() === '' ? null : Number(d.feePercent);
   if (badPct(fee)) return { error: 'Fee must be a number between 0 and 100.' };
@@ -81,7 +81,7 @@ function defaultsDraft(d: MarketplaceDefaults): RowDraft {
   };
 }
 
-function DefaultsCard() {
+export function DefaultsCard() {
   const q = useFetch(() => api.marketplace.defaults(), []);
   const [draft, setDraft] = React.useState<RowDraft | null>(null);
   const [saving, setSaving] = React.useState(false);
@@ -495,12 +495,17 @@ function formatConfigValue(field: MarketplaceConfigField, v: unknown): string {
 
 const HISTORY_PAGE_SIZE = 15;
 
-function ChangeHistory({ apps, refreshKey }: { apps: MarketplaceSettingsRow[]; refreshKey: number }) {
+export function ChangeHistory({ apps, refreshKey, fixedAppId }: {
+  apps: Pick<MarketplaceSettingsRow, 'appId' | 'appName'>[];
+  refreshKey: number;
+  /** Inside an app: only that app's changes, no app filter. */
+  fixedAppId?: string;
+}) {
   const [appFilter, setAppFilter] = React.useState('All');
   const [page, setPage] = React.useState(1);
   const query = {
     page, pageSize: HISTORY_PAGE_SIZE,
-    appId: appFilter !== 'All' ? appFilter : undefined,
+    appId: fixedAppId ?? (appFilter !== 'All' ? appFilter : undefined),
   };
   const list = useFetch(() => api.marketplace.configChanges(query), [JSON.stringify(query), refreshKey]);
   const appName = (id: string) => apps.find((a) => a.appId === id)?.appName;
@@ -516,8 +521,8 @@ function ChangeHistory({ apps, refreshKey }: { apps: MarketplaceSettingsRow[]; r
             Every change to these settings, newest first. Changes an app made itself are highlighted.
           </div>
         </div>
-        <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }}
-          options={['All', ...apps.map((a) => ({ value: a.appId, label: a.appName }))]} />
+        {!fixedAppId && <FilterSelect label="App" value={appFilter} onChange={(v) => { setAppFilter(v); setPage(1); }}
+          options={['All', ...apps.map((a) => ({ value: a.appId, label: a.appName }))]} />}
       </div>
       <Card padding={0}>
         {!list.data && list.loading && <LoadingBlock height={120} />}
@@ -569,6 +574,7 @@ function ChangeHistory({ apps, refreshKey }: { apps: MarketplaceSettingsRow[]; r
               ]}
               rows={list.data.data}
               getRowKey={(r) => r.id}
+              hide={fixedAppId ? ['app'] : undefined}
             />
             <Pager total={list.data.total} page={list.data.page} pageSize={list.data.pageSize} onChange={setPage} />
           </>

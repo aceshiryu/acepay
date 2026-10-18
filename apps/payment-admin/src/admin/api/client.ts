@@ -1,12 +1,12 @@
 import {
-  AdminUser, AppKeyRotated, AppRegistered, AppSummary, AppView, BillingMode,
+  AdminUser, AppHealth, AppKeyRotated, AppRegistered, AppStatus, AppSummary, AppView, BillingMode,
   CustomerListRow, CustomersStats, Customer,
   DashboardStats, LoginResponse, LookedUpVariant,
   MarketplaceChannel, MarketplaceConfigChange, MarketplaceDefaults, MarketplaceSettingsRow, MarketplaceSummary,
   MerchantBalance, MerchantDetail, MerchantListRow, MerchantStatus,
   Notification, NotificationSeverity, NotificationStats,
   Payout, PayoutRun, PayoutRunDetail, PayoutRunStatus, PayoutStatus,
-  Paged, Plan, PlanRegion, ProviderHealth,
+  Paged, Plan, PlanRegion, Provider, ProviderHealth,
   Subscription, SubscriptionStats,
   Transaction, TransactionLog, TransactionStats,
   WebhookEvent, WebhookStats,
@@ -124,12 +124,14 @@ export const auth = {
 
 // ── Apps ─────────────────────────────────────────────────────────────────
 export interface InlinePlanInput {
-  provider: 'lemonsqueezy' | 'xendit';
+  provider: Provider;
   title: string;
   description?: string;
   region: PlanRegion;
   // Lemon Squeezy:
   variantId?: string;
+  // PayMongo: link an existing PayMongo plan (else AcePay creates one from the fields below):
+  paymongoPlanId?: string;
   // Xendit (AcePay-managed schedule, no provider plan resource):
   amount?: number;
   currency?: string;
@@ -137,8 +139,18 @@ export interface InlinePlanInput {
   intervalCount?: number;
 }
 export const apps = {
-  list: () => request<{ data: AppView[] }>('/admin/apps'),
+  /** Archived apps are left out; `{ archived: true }` lists only them. */
+  list: (opts: { archived?: boolean } = {}) =>
+    request<{ data: AppView[] }>('/admin/apps', { query: opts.archived ? { archived: 'true' } : undefined }),
   one: (id: string) => request<AppView>(`/admin/apps/${id}`),
+  status: (id: string) => request<AppStatus>(`/admin/apps/${id}/status`),
+  testPayment: (id: string, body: { amount: number; description?: string; customerEmail?: string; redirect: string }) =>
+    request<{ id: string; code: string; status: string; checkoutUrl: string | null; amount: number; currency: string }>(
+      `/admin/apps/${id}/test-payment`, { method: 'POST', body },
+    ),
+  setMenus: (id: string, hiddenMenus: string[]) =>
+    request<AppView>(`/admin/apps/${id}/menus`, { method: 'PUT', body: { hiddenMenus } }),
+  statuses: () => request<{ data: { appId: string; status: AppHealth }[] }>('/admin/apps/statuses'),
   register: (body: {
     name: string;
     slug?: string;
@@ -147,6 +159,9 @@ export const apps = {
     optionalMetadata?: string[];
     rateLimit?: number;
     billingMode: BillingMode;
+    /** Add-app provider: every plan must use it (validated, not stored). */
+    provider?: Provider;
+    paymentMethods?: string[] | null;
     plans?: InlinePlanInput[];
   }) => request<AppRegistered>('/admin/apps', { method: 'POST', body }),
   update: (id: string, body: Partial<{
@@ -168,7 +183,13 @@ export const apps = {
     request<{ app: AppView; webhookSecret: string; warning: string }>(
       `/admin/apps/${id}/regenerate-webhook-secret`, { method: 'POST' },
     ),
-  deactivate: (id: string) => request<AppView>(`/admin/apps/${id}`, { method: 'DELETE' }),
+  deactivate: (id: string) => request<AppView>(`/admin/apps/${id}/deactivate`, { method: 'POST' }),
+  /** Hide everywhere + stop the key; history kept, restorable. */
+  archive: (id: string) => request<AppView>(`/admin/apps/${id}/archive`, { method: 'POST' }),
+  restore: (id: string) => request<AppView>(`/admin/apps/${id}/restore`, { method: 'POST' }),
+  /** Archived apps only; `confirmName` must equal the app name. Cannot be undone. */
+  deletePermanently: (id: string, confirmName: string) =>
+    request<{ id: string; name: string }>(`/admin/apps/${id}`, { method: 'DELETE', body: { confirmName } }),
   activate: (id: string) => request<AppView>(`/admin/apps/${id}/activate`, { method: 'POST' }),
   testSubscription: (id: string, body: {
     planId: string;
@@ -179,15 +200,17 @@ export const apps = {
     subscriptionId: string;
     subscriptionCode: string;
     checkoutUrl: string;
-    provider: 'lemonsqueezy' | 'xendit';
+    provider: Provider;
     customerId: string;
     customerCode: string;
   }>(`/admin/apps/${id}/test-subscription`, { method: 'POST', body }),
 };
 
+export type AppStatusResponse = AppStatus;
+
 // ── Settings ─────────────────────────────────────────────────────────────
 export interface ProviderHealthRow {
-  provider: 'lemonsqueezy' | 'xendit';
+  provider: Provider;
   envOk: boolean;
   missingEnv: string[];
   webhookPath: string;
@@ -202,7 +225,7 @@ export interface SettingsHealthResponse {
 export const settings = {
   health: () => request<SettingsHealthResponse>('/admin/settings/health'),
   simulateWebhook: (body: {
-    provider: 'lemonsqueezy' | 'xendit';
+    provider: Provider;
     acepaySubscriptionId?: string;
   }) => request<{
     ok: boolean;
@@ -210,6 +233,50 @@ export const settings = {
     payload: Record<string, unknown>;
     result: { duplicate: boolean; eventId: string | null; eventCode: string | null; reason?: string };
   }>('/admin/settings/simulate-webhook', { method: 'POST', body }),
+};
+
+// ── Integrations ─────────────────────────────────────────────────────────
+export type ProviderName = ProviderHealthRow['provider'];
+export type ProviderMode = 'test' | 'live' | 'unknown';
+export interface IntegrationCredential {
+  env: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  hint: string;
+  set: boolean;
+  /** Full value for non-secrets; `••••` + last 4 for secrets. */
+  preview: string | null;
+  /** `database` = saved on the Integrations page (wins over .env), `env` = from .env. */
+  source: 'database' | 'env' | null;
+  /** The .env also has a value; removing the saved one falls back to it. */
+  envFallback: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+export interface IntegrationChange { key: string; action: 'set' | 'cleared'; actor: string | null; createdAt: string }
+export interface IntegrationWebhook { label: string; path: string; events: string[] }
+export interface IntegrationRow {
+  provider: ProviderName;
+  name: string;
+  region: string;
+  usedFor: string;
+  dashboardUrl: string;
+  configured: boolean;
+  mode: ProviderMode;
+  credentials: IntegrationCredential[];
+  webhooks: IntegrationWebhook[];
+  health: Pick<ProviderHealthRow, 'status' | 'lastWebhookAt' | 'count24h'>;
+  recentChanges: IntegrationChange[];
+}
+export interface ConnectionCheck { ok: boolean; mode: ProviderMode; detail: string }
+export const integrations = {
+  list: () => request<{ integrations: IntegrationRow[]; publicBaseHint: string | null }>('/admin/integrations'),
+  test: (provider: ProviderName) =>
+    request<ConnectionCheck>(`/admin/integrations/${provider}/test`, { method: 'POST' }),
+  /** A string saves (encrypted, overrides .env); null removes the saved value. */
+  saveCredentials: (provider: ProviderName, values: Record<string, string | null>) =>
+    request<IntegrationRow>(`/admin/integrations/${provider}/credentials`, { method: 'PUT', body: { values } }),
 };
 
 // ── Stats ────────────────────────────────────────────────────────────────
@@ -312,7 +379,7 @@ export interface CustomerListQuery {
 }
 export const customers = {
   list: (q: CustomerListQuery = {}) => request<Paged<CustomerListRow>>('/admin/customers', { query: q }),
-  stats: () => request<CustomersStats>('/admin/customers/stats'),
+  stats: (appId?: string) => request<CustomersStats>('/admin/customers/stats', { query: { appId } }),
   one: (id: string) => request<Customer & {
     subscriptions: Subscription[]; transactions: Transaction[];
   }>(`/admin/customers/${id}`),
@@ -326,8 +393,8 @@ export interface WebhookListQuery {
 }
 export const webhookEvents = {
   list: (q: WebhookListQuery = {}) => request<Paged<WebhookEvent>>('/admin/webhook-events', { query: q }),
-  stats: (windowHours = 24) =>
-    request<WebhookStats>('/admin/webhook-events/stats', { query: { windowHours } }),
+  stats: (windowHours = 24, appId?: string) =>
+    request<WebhookStats>('/admin/webhook-events/stats', { query: { windowHours, appId } }),
   one: (id: string) => request<WebhookEvent>(`/admin/webhook-events/${id}`),
   retry: (id: string) => request<WebhookEvent>(`/admin/webhook-events/${id}/retry`, { method: 'POST' }),
 };

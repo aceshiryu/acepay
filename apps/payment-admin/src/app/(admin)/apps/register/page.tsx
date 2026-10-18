@@ -1,10 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { RegisterAppPage } from '../../../../admin/pages/register-app';
-import { useNavigate } from '../../../../admin/navigate';
+import { RedirectTo } from '@/admin/redirects';
 
 export default function Page() {
-  const router = useRouter();
-  return <RegisterAppPage onNavigate={useNavigate()} onBack={() => router.push('/apps')} />;
+  return <RedirectTo href="/apps/new" />;
 }

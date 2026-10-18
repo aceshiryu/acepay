@@ -742,7 +742,7 @@ const code: React.CSSProperties = {
 };
 const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', padding: 0,
-  color: 'var(--accent)', fontWeight: 550, cursor: 'pointer',
+  color: 'var(--accent-text)', fontWeight: 550, cursor: 'pointer',
   fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline',
 };
 
@@ -893,7 +893,7 @@ function EventRow({ event, when, todo }: { event: string; when: string; todo: st
       padding: '10px 14px', borderTop: '1px solid var(--hairline)',
       fontSize: 12, alignItems: 'baseline', gap: 12,
     }}>
-      <code className="mono" style={{ fontSize: 11.5, color: 'var(--accent)', fontWeight: 600 }}>{event}</code>
+      <code className="mono" style={{ fontSize: 11.5, color: 'var(--accent-text)', fontWeight: 600 }}>{event}</code>
       <span style={{ color: 'var(--muted)' }}>{when}</span>
       <span style={{ color: 'var(--ink-2)' }}>{todo}</span>
     </div>

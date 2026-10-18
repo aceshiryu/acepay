@@ -29,9 +29,13 @@ export class CreateMarketplacePaymentDto {
   @IsIn(['PHP'])
   currency!: string;
 
-  @ApiProperty({ description: 'AcePay merchant id (must belong to your app and be active)' })
+  @ApiPropertyOptional({
+    description: 'Marketplace apps: the AcePay merchant to collect for (must belong to your app and be active). '
+      + 'Leave it out for a normal one-time payment to your own account (PayMongo apps).',
+  })
+  @IsOptional()
   @IsUUID()
-  merchantId!: string;
+  merchantId?: string;
 
   @ApiProperty({
     maxLength: 200, example: 'booking_9f2c',
